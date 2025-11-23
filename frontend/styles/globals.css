@@ -1,7 +1,11 @@
+/* stylelint-disable at-rule-no-unknown */
+
+/* Tailwind CSS Directives */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+/* Base Layer Styles */
 @layer base {
   html, body {
     @apply p-0 m-0 font-sans box-border;
@@ -19,6 +23,7 @@
   }
 }
 
+/* Custom Utility Classes */
 @layer utilities {
   .bg-elevated {
     @apply bg-white dark:bg-elevated-900;

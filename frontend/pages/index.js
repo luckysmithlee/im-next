@@ -17,14 +17,34 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(true); // 添加加载状态
   const messageInputRef = useRef(null);
 
-  // 持久化登录状态
+  // 持久化登录状态 - 增强版自动登录
   useEffect(() => {
     const savedToken = localStorage.getItem('chat_token');
     const savedUserId = localStorage.getItem('chat_userId');
     const savedUserEmail = localStorage.getItem('chat_userEmail');
+    const rememberMe = localStorage.getItem('chat_remember_me') === 'true';
     
     if (savedToken && savedUserId && savedUserEmail) {
-      handleLogin(savedToken, savedUserId, savedUserEmail);
+      // 验证token是否过期（简单的过期检查）
+      const tokenParts = savedToken.split('_');
+      const tokenTimestamp = tokenParts[tokenParts.length - 1];
+      const tokenAge = Date.now() - parseInt(tokenTimestamp);
+      const maxTokenAge = 7 * 24 * 60 * 60 * 1000; // 7天有效期
+      
+      if (tokenAge < maxTokenAge) {
+        // Token有效，执行自动登录
+        handleLogin(savedToken, savedUserId, savedUserEmail, rememberMe);
+      } else {
+        // Token过期，清除本地存储
+        localStorage.removeItem('chat_token');
+        localStorage.removeItem('chat_userId');
+        localStorage.removeItem('chat_userEmail');
+        if (!rememberMe) {
+          localStorage.removeItem('chat_remember_me');
+          localStorage.removeItem('chat_saved_email');
+        }
+        console.log('自动登录失败：Token已过期');
+      }
     }
     setIsLoading(false); // 完成加载检查
   }, []);
@@ -34,6 +54,13 @@ export default function Home() {
     localStorage.removeItem('chat_token');
     localStorage.removeItem('chat_userId');
     localStorage.removeItem('chat_userEmail');
+    
+    // 如果用户没有选择记住我，则清除记住我相关数据
+    const rememberMe = localStorage.getItem('chat_remember_me') === 'true';
+    if (!rememberMe) {
+      localStorage.removeItem('chat_remember_me');
+      localStorage.removeItem('chat_saved_email');
+    }
     
     // 断开 socket 连接
     if (socket) {
@@ -52,7 +79,7 @@ export default function Home() {
     // 注意：不设置 isLoading，直接显示登录表单
   }
 
-  function handleLogin(tkn, userId, email) {
+  function handleLogin(tkn, userId, email, rememberMe = false) {
     setToken(tkn);
     setUserId(userId);
     setUserEmail(email);
@@ -61,6 +88,12 @@ export default function Home() {
     localStorage.setItem('chat_token', tkn);
     localStorage.setItem('chat_userId', userId);
     localStorage.setItem('chat_userEmail', email);
+    
+    // 如果用户选择了记住我，保存偏好
+    if (rememberMe) {
+      localStorage.setItem('chat_remember_me', 'true');
+      localStorage.setItem('chat_saved_email', email);
+    }
     
     // 建立 socket 连接并带上 token
     socket = io(process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:4000', {

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { MessageCircle, Eye, EyeOff, Loader2 } from 'lucide-react';
 
 // 模拟用户数据
@@ -14,6 +14,18 @@ export default function LoginForm({ onLogin }) {
   const [err, setErr] = useState(null);
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [rememberMe, setRememberMe] = useState(false);
+
+  // 加载保存的自动登录偏好
+  useEffect(() => {
+    const savedRememberMe = localStorage.getItem('chat_remember_me') === 'true';
+    const savedEmail = localStorage.getItem('chat_saved_email');
+    
+    if (savedRememberMe && savedEmail) {
+      setRememberMe(true);
+      setEmail(savedEmail);
+    }
+  }, []);
 
   async function submit(e) {
     e.preventDefault();
@@ -34,7 +46,17 @@ export default function LoginForm({ onLogin }) {
       
       // 生成模拟token
       const mockToken = `mock_jwt_${user.id}_${Date.now()}`;
-      onLogin(mockToken, user.id, user.email);
+      
+      // 保存自动登录偏好
+      if (rememberMe) {
+        localStorage.setItem('chat_remember_me', 'true');
+        localStorage.setItem('chat_saved_email', email);
+      } else {
+        localStorage.removeItem('chat_remember_me');
+        localStorage.removeItem('chat_saved_email');
+      }
+      
+      onLogin(mockToken, user.id, user.email, rememberMe);
       
     } catch (error) {
       setErr('登录失败，请重试');
@@ -110,6 +132,20 @@ export default function LoginForm({ onLogin }) {
               {err}
             </div>
           )}
+
+          {/* Remember Me */}
+          <div className="flex items-center">
+            <input
+              id="remember-me"
+              type="checkbox"
+              checked={rememberMe}
+              onChange={(e) => setRememberMe(e.target.checked)}
+              className="h-4 w-4 text-primary-600 focus:ring-primary-500 border-border rounded"
+            />
+            <label htmlFor="remember-me" className="ml-2 block text-sm text-text-muted">
+              自动登录
+            </label>
+          </div>
 
           <button 
             type="submit"
