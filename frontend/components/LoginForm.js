@@ -62,15 +62,16 @@ export default function LoginForm({ onLogin }) {
               邮箱地址
             </label>
             <input 
-              id="email"
-              type="email"
-              value={email} 
-              onChange={e=>setEmail(e.target.value)} 
-              placeholder="请输入您的邮箱"
-              required
-              disabled={loading}
-              className="w-full px-4 py-3 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            />
+                id="email"
+                type="email"
+                value={email} 
+                onChange={e=>setEmail(e.target.value)} 
+                placeholder="请输入您的邮箱"
+                required
+                disabled={loading}
+                autoComplete="email"
+                className="w-full px-4 py-3 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              />
           </div>
 
           <div>
@@ -86,6 +87,7 @@ export default function LoginForm({ onLogin }) {
                 placeholder="请输入密码"
                 required
                 disabled={loading}
+                autoComplete="current-password"
                 className="w-full px-4 py-3 pr-12 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               />
               <button

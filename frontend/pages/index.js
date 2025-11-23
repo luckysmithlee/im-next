@@ -116,7 +116,7 @@ export default function Home() {
         // 加载状态，显示空白或加载动画
         <div className="min-h-screen bg-surface dark:bg-surface-900 flex items-center justify-center">
           <div className="text-center">
-            <div className="w-8 h-8 border-4 border-primary-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+            <div className="w-8 h-8 border-4 border-primary-500 border-t-transparent rounded-full mx-auto mb-4"></div>
             <p className="text-text-muted">加载中...</p>
           </div>
         </div>
@@ -126,28 +126,42 @@ export default function Home() {
         <div className="h-screen flex flex-col">
           {/* Header */}
           <header className="bg-primary-500 text-white px-4 py-3 text-center shadow-md">
-            <div className="max-w-7xl mx-auto flex items-center justify-between">
-              <div className="flex items-center space-x-4">
+            <div className="flex items-center justify-between w-full">
+              {/* Left section - Menu and Title */}
+              <div className="flex items-center flex-shrink-0">
                 {/* Mobile menu button */}
                 <button
                   onClick={() => setShowSidebar(!showSidebar)}
-                  className="lg:hidden p-2 rounded-md hover:bg-primary-600 transition-colors"
+                  className="lg:hidden p-2 rounded-md hover:bg-primary-600 transition-colors flex-shrink-0"
                   aria-label="切换用户侧边栏"
                 >
                   <Menu className="w-5 h-5" />
                 </button>
-                <h1 className="text-lg font-semibold">聊天应用</h1>
+                <h1 className="text-lg font-semibold ml-4">聊天应用</h1>
               </div>
-              <div className="hidden sm:block text-sm opacity-90">
-                {userEmail} (ID: {userId})
+              
+              {/* Center section - User info */}
+              <div className="hidden sm:flex flex-1 items-center justify-center text-sm opacity-90 min-w-0 px-2 mx-2">
+                {/* 超大屏幕显示完整信息 */}
+                <span className="hidden xl:inline truncate max-w-lg">{userEmail} (ID: {userId})</span>
+                {/* 大屏幕显示邮箱和ID */}
+                <span className="hidden lg:inline xl:hidden truncate max-w-md">{userEmail} (ID: {userId})</span>
+                {/* 中等屏幕只显示邮箱 */}
+                <span className="hidden md:inline lg:hidden truncate max-w-[200px]">{userEmail}</span>
+                {/* 小屏幕只显示ID */}
+                <span className="md:hidden truncate max-w-[150px]">ID: {userId}</span>
               </div>
-              <button
-                onClick={handleLogout}
-                className="px-3 py-1 text-sm bg-primary-600 hover:bg-primary-700 rounded-md transition-colors"
-                title="退出登录"
-              >
-                退出
-              </button>
+              
+              {/* Right section - Logout button */}
+              <div className="flex-shrink-0">
+                <button
+                  onClick={handleLogout}
+                  className="px-3 py-1 text-sm bg-primary-600 hover:bg-primary-700 rounded-md transition-colors flex-shrink-0"
+                  title="退出登录"
+                >
+                  退出
+                </button>
+              </div>
             </div>
           </header>
 
@@ -209,9 +223,8 @@ export default function Home() {
                         }`}
                       >
                         <div className="flex items-center flex-1 min-w-0">
-                          <div className="relative flex-shrink-0">
+                          <div className="flex-shrink-0">
                             <div className="w-3 h-3 bg-success rounded-full mr-3"></div>
-                            <div className="absolute inset-0 w-3 h-3 bg-success rounded-full mr-3 animate-ping opacity-75"></div>
                           </div>
                           <span className="font-medium truncate flex-1">{u}</span>
                           {to === u && (
@@ -307,7 +320,7 @@ export default function Home() {
                       ref={messageInputRef}
                       value={text}
                       onChange={e => setText(e.target.value)}
-                      placeholder={to ? `发送消息给 ${to}...` : '请先选择一个用户'}
+                      placeholder={to ? `发送消息给 ${to}...` : ''}
                       disabled={!to}
                       className="w-full px-4 py-3 border border-border rounded-xl text-sm sm:text-base focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors resize-none"
                     />

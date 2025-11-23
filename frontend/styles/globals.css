@@ -9,6 +9,14 @@
   a {
     @apply text-inherit no-underline;
   }
+  /* 确保输入框支持文本选择和编辑 */
+  input, textarea {
+    @apply select-text cursor-text;
+    -webkit-user-select: text;
+    -moz-user-select: text;
+    -ms-user-select: text;
+    user-select: text;
+  }
 }
 
 @layer utilities {
