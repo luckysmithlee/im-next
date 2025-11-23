@@ -1,0 +1,30 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html, body {
+    @apply p-0 m-0 font-sans box-border;
+  }
+  a {
+    @apply text-inherit no-underline;
+  }
+}
+
+@layer utilities {
+  .bg-elevated {
+    @apply bg-white dark:bg-elevated-900;
+  }
+  .bg-surface {
+    @apply bg-surface-50 dark:bg-surface-900;
+  }
+  .text-text {
+    @apply text-text-DEFAULT dark:text-text-dark;
+  }
+  .text-text-muted {
+    @apply text-gray-600 dark:text-gray-400;
+  }
+  .border-border {
+    @apply border-border-DEFAULT dark:border-border-dark;
+  }
+}

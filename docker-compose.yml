@@ -1,0 +1,65 @@
+version: '3.9'
+services:
+  supabase-db:
+    image: postgres:15
+    container_name: supabase-db
+    environment:
+      POSTGRES_PASSWORD: supabase
+      POSTGRES_USER: supabase
+      POSTGRES_DB: postgres
+    volumes:
+      - ./volumes/db:/var/lib/postgresql/data
+    ports:
+      - '5432:5432'
+
+  supabase-auth:
+    image: supabase/gotrue:v2.116.1
+    container_name: supabase-auth
+    environment:
+      GOTRUE_SITE_URL: http://localhost:3000
+      GOTRUE_JWT_SECRET: supabase-jwt-secret
+      DATABASE_URL: postgres://supabase:supabase@supabase-db:5432/postgres
+      SITE_URL: http://localhost:3000
+    ports:
+      - '9999:9999'
+    depends_on:
+      - supabase-db
+
+  supabase-realtime:
+    image: supabase/realtime:v2.25.53
+    container_name: supabase-realtime
+    environment:
+      DB_HOST: supabase-db
+      DB_NAME: postgres
+      DB_USER: supabase
+      DB_PASSWORD: supabase
+    ports:
+      - '4001:4001'
+    depends_on:
+      - supabase-db
+
+  backend:
+    build: ./backend
+    container_name: chat-backend
+    env_file: .env
+    environment:
+      - PORT=4000
+      - GOTRUE_URL=http://supabase-auth:9999/auth/v1
+    ports:
+      - '4000:4000'
+    depends_on:
+      - supabase-auth
+      - supabase-realtime
+
+  frontend:
+    build: ./frontend
+    container_name: chat-frontend
+    env_file: .env
+    environment:
+      - NEXT_PUBLIC_SUPABASE_URL=http://localhost:9999
+      - NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY}
+      - NEXT_PUBLIC_BACKEND_URL=http://localhost:4000
+    ports:
+      - '3000:3000'
+    depends_on:
+      - backend
