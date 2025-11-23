@@ -41,7 +41,7 @@ export default function Home() {
       socket = null;
     }
     
-    // 重置状态
+    // 重置状态 - 不需要设置加载状态，直接回到登录页
     setToken(null);
     setUserId(null);
     setUserEmail('');
@@ -49,7 +49,7 @@ export default function Home() {
     setTo('');
     setText('');
     setOnline([]);
-    setIsLoading(true); // 设置加载状态，防止闪烁
+    // 注意：不设置 isLoading，直接显示登录表单
   }
 
   function handleLogin(tkn, userId, email) {
