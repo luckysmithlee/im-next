@@ -14,12 +14,54 @@ export default function Home() {
   const [to, setTo] = useState('');
   const [text, setText] = useState('');
   const [showSidebar, setShowSidebar] = useState(false);
+  const [isLoading, setIsLoading] = useState(true); // 添加加载状态
   const messageInputRef = useRef(null);
+
+  // 持久化登录状态
+  useEffect(() => {
+    const savedToken = localStorage.getItem('chat_token');
+    const savedUserId = localStorage.getItem('chat_userId');
+    const savedUserEmail = localStorage.getItem('chat_userEmail');
+    
+    if (savedToken && savedUserId && savedUserEmail) {
+      handleLogin(savedToken, savedUserId, savedUserEmail);
+    }
+    setIsLoading(false); // 完成加载检查
+  }, []);
+
+  function handleLogout() {
+    // 清除本地存储的登录状态
+    localStorage.removeItem('chat_token');
+    localStorage.removeItem('chat_userId');
+    localStorage.removeItem('chat_userEmail');
+    
+    // 断开 socket 连接
+    if (socket) {
+      socket.disconnect();
+      socket = null;
+    }
+    
+    // 重置状态
+    setToken(null);
+    setUserId(null);
+    setUserEmail('');
+    setMessages({});
+    setTo('');
+    setText('');
+    setOnline([]);
+    setIsLoading(true); // 设置加载状态，防止闪烁
+  }
 
   function handleLogin(tkn, userId, email) {
     setToken(tkn);
     setUserId(userId);
     setUserEmail(email);
+    
+    // 保存登录状态到本地存储
+    localStorage.setItem('chat_token', tkn);
+    localStorage.setItem('chat_userId', userId);
+    localStorage.setItem('chat_userEmail', email);
+    
     // 建立 socket 连接并带上 token
     socket = io(process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:4000', {
       auth: { token: tkn }
@@ -35,6 +77,8 @@ export default function Home() {
         };
       });
     });
+    
+    setIsLoading(false); // 登录完成后设置加载状态为false
   }
 
   // 当选择用户时自动聚焦到消息输入框
@@ -68,7 +112,15 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-surface dark:bg-surface-900">
-      {!token ? (
+      {isLoading ? (
+        // 加载状态，显示空白或加载动画
+        <div className="min-h-screen bg-surface dark:bg-surface-900 flex items-center justify-center">
+          <div className="text-center">
+            <div className="w-8 h-8 border-4 border-primary-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+            <p className="text-text-muted">加载中...</p>
+          </div>
+        </div>
+      ) : !token ? (
         <LoginForm onLogin={handleLogin} />
       ) : (
         <div className="h-screen flex flex-col">
@@ -89,6 +141,13 @@ export default function Home() {
               <div className="hidden sm:block text-sm opacity-90">
                 {userEmail} (ID: {userId})
               </div>
+              <button
+                onClick={handleLogout}
+                className="px-3 py-1 text-sm bg-primary-600 hover:bg-primary-700 rounded-md transition-colors"
+                title="退出登录"
+              >
+                退出
+              </button>
             </div>
           </header>
 

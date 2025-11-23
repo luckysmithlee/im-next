@@ -96,8 +96,6 @@ io.on('connection', (socket) => {
     if (toSocketId) {
       io.to(toSocketId).emit('private_message', msg);
     }
-    // 给发送者回一份确认
-    socket.emit('private_message', msg);
     // TODO: 持久化到 DB
   });
 
