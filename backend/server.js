@@ -16,6 +16,8 @@ const io = new Server(server, {
 });
 
 const GOTRUE_URL = process.env.GOTRUE_URL || 'http://localhost:9999/auth/v1';
+const storage = require('./storage');
+storage.load();
 
 // 简单在线用户映射: userId -> socketId
 const onlineUsers = new Map();
@@ -84,8 +86,15 @@ io.on('connection', (socket) => {
   }
   broadcastOnline();
 
+  try {
+    const byPeer = storage.getUnreadByPeer(user.id);
+    const total = storage.getTotalUnread(user.id);
+    io.to(socket.id).emit('unread_counts', { byPeer, total });
+  } catch (e) {
+    console.error('发送初始未读计数失败', e.message || e);
+  }
+
   socket.on('private_message', (payload) => {
-    // payload: { to, content }
     const toSocketId = onlineUsers.get(payload.to);
     const msg = {
       from: user.id,
@@ -93,10 +102,21 @@ io.on('connection', (socket) => {
       content: payload.content,
       timestamp: Date.now()
     };
+    storage.appendMessage(user.id, payload.to, payload.content, msg.timestamp);
     if (toSocketId) {
       io.to(toSocketId).emit('private_message', msg);
+      const byPeer = storage.getUnreadByPeer(payload.to);
+      const total = storage.getTotalUnread(payload.to);
+      io.to(toSocketId).emit('unread_counts', { byPeer, total });
     }
-    // TODO: 持久化到 DB
+    io.to(socket.id).emit('private_message', msg);
+  });
+
+  socket.on('mark_read', (payload) => {
+    const peer = payload && payload.peer;
+    if (!peer) return;
+    const result = storage.resetUnread(user.id, peer);
+    io.to(socket.id).emit('unread_counts', result);
   });
 
   socket.on('disconnect', () => {
@@ -108,6 +128,45 @@ io.on('connection', (socket) => {
 
 app.get('/api/me', authMiddleware, (req, res) => {
   res.json({ id: req.user.id, email: req.user.email });
+});
+
+app.get('/health', (req, res) => {
+  res.status(200).json({ status: 'ok' });
+});
+
+// 按需分页获取历史消息
+// GET /api/messages/:peer?before=<timestamp>&limit=<n>
+app.get('/api/messages/:peer', authMiddleware, (req, res) => {
+  const peer = req.params.peer;
+  const before = req.query.before ? Number(req.query.before) : undefined;
+  const limit = req.query.limit ? Math.min(Number(req.query.limit), 100) : 20;
+  const { messages, nextCursor } = storage.getMessages(req.user.id, peer, before, limit);
+  res.json({ messages, nextCursor });
+});
+
+// 获取当前用户未读计数
+app.get('/api/unread', authMiddleware, (req, res) => {
+  const byPeer = storage.getUnreadByPeer(req.user.id);
+  const total = storage.getTotalUnread(req.user.id);
+  res.json({ byPeer, total });
+});
+
+// 标记与某个对端会话为已读
+app.post('/api/read/:peer', authMiddleware, (req, res) => {
+  const peer = req.params.peer;
+  const result = storage.resetUnread(req.user.id, peer);
+  const selfSocketId = onlineUsers.get(req.user.id);
+  if (selfSocketId) io.to(selfSocketId).emit('unread_counts', result);
+  res.json({ ok: true, ...result });
+});
+
+// 可选：通过HTTP写入一条消息（用于测试/回放）
+app.post('/api/messages/:peer', authMiddleware, (req, res) => {
+  const peer = req.params.peer;
+  const { content, timestamp } = req.body || {};
+  if (!content || typeof content !== 'string') return res.status(400).json({ error: 'content required' });
+  const msg = storage.appendMessage(req.user.id, peer, content, timestamp);
+  res.json({ ok: true, message: msg });
 });
 
 const PORT = process.env.PORT || 4000;

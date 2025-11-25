@@ -4,12 +4,15 @@
 
 ## 功能特性
 
-- **实时消息传输** 使用 Socket.IO
+- **实时消息传输**（Socket.IO）
 - **在线用户状态跟踪**
 - **私聊功能**
+- **消息持久化**（开发默认文件存储），顶部滚动自动按需加载历史
+- **智能滚动行为**：在底部时不强制滚动；不在底部时渲染后自动滚到底部
+- **干净的聊天头部**：仅在选中会话时渲染
 - **多种前端实现**：Vite + React + TypeScript、Next.js
-- **响应式设计** 使用 Tailwind CSS
-- **模拟认证** 便于测试
+- **响应式设计**（Tailwind CSS）
+- **模拟认证**（便于测试）
 
 ## 项目结构
 
@@ -40,9 +43,9 @@ im-next/
    ```
 
 3. **访问应用：**
-   - Vite 前端: http://localhost:3002
    - Next.js 前端: http://localhost:3000
-   - 后端 WebSocket: http://localhost:4000
+   - Vite 前端: http://localhost:5173
+   - 后端 API/WebSocket: http://localhost:4000
 
 ### 方案 2：手动开发环境搭建
 
@@ -77,8 +80,9 @@ npm run dev  # 运行在端口 3001（构建后在 3000）
 
 ### 后端（Node.js + Express + Socket.IO）
 - **端口**: 4000
-- **功能**: WebSocket 连接管理、在线用户跟踪、私聊消息
-- **依赖**: express, socket.io, cors
+- **功能**: WebSocket 连接管理、在线用户跟踪、私聊消息、REST 历史接口
+- **持久化**: 默认文件型 JSON（开发环境），可升级切换到 PostgreSQL/Supabase
+- **依赖**: express, socket.io, cors, node-fetch
 
 ### Vite 前端（主要实现）
 - **端口**: 3002
@@ -144,6 +148,13 @@ npm start        # 生产环境启动
 - `user_online`: 用户上线通知
 - `user_offline`: 用户下线通知
 
+## REST 接口
+
+- `GET /health`: 服务健康检查
+- `GET /api/me`: 当前用户信息（需 `Authorization: Bearer <token>`，支持 mock token `mock_jwt_<userId>_<ts>`）
+- `GET /api/messages/:peer?limit=<n>&before=<timestamp>`: 分页查询历史（严格早于 `before`），默认 20 条
+- `POST /api/messages/:peer` JSON `{ content: string }`: 将当前用户的消息写入到会话
+
 ## 环境配置
 
 项目默认使用模拟认证。如需使用真实认证部署生产环境，请配置：
@@ -160,10 +171,10 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key
 
 ## Docker 服务
 
-- `vite-frontend`: Vite React TypeScript 应用
-- `nextjs-frontend`: Next.js 应用
-- `backend`: Socket.IO 服务器
-- `supabase`: Supabase 服务（配置后）
+- `backend`: API + Socket.IO 服务（4000）
+- `nextjs-frontend`: Next.js 应用（3000）
+- `vite-frontend`: Vite React TypeScript 应用（5173）
+- `postgres/redis/minio/nginx`: 生产栈（`docker-compose.prod.yml`）
 
 ## 测试
 
@@ -172,6 +183,12 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key
 cd frontend
 npm test
 ```
+
+## 说明
+
+- 默认持久化使用 `backend/data/messages.json`，适合本地/开发。生产建议切换到 PostgreSQL/Supabase，并替换存储层实现。
+- 历史按需加载：消息列表滚到顶部时自动加载上一页，加载后保持当前视口位置。
+- 底部行为：若已在底部，新消息不强制滚动；若不在底部，渲染完成后平滑滚到底部。
 
 ## 最近更新
 

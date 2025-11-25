@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useLayoutEffect } from 'react';
 import LoginForm from '../components/LoginForm';
 import io from 'socket.io-client';
 import { Menu, X, Users, MessageCircle, Send, UserCircle } from 'lucide-react';
@@ -11,11 +11,35 @@ export default function Home() {
   const [userId, setUserId] = useState(null);
   const [userEmail, setUserEmail] = useState('');
   const [messages, setMessages] = useState({}); // 按用户分组存储消息
+  const [cursors, setCursors] = useState({}); // 每个会话的分页游标（下一次before）
   const [to, setTo] = useState('');
   const [text, setText] = useState('');
   const [showSidebar, setShowSidebar] = useState(false);
   const [isLoading, setIsLoading] = useState(true); // 添加加载状态
+  const [unreadByPeer, setUnreadByPeer] = useState({});
+  const [totalUnread, setTotalUnread] = useState(0);
+  const [loadingMore, setLoadingMore] = useState(false);
   const messageInputRef = useRef(null);
+  const chatBodyRef = useRef(null);
+  const tailTsRef = useRef(0);
+  const scrollTimerRef = useRef(null);
+  const [atBottomState, setAtBottomState] = useState(true);
+  const [newInConv, setNewInConv] = useState(0);
+  const shouldScrollRef = useRef(false);
+
+  function scrollToBottom() {
+    const el = chatBodyRef.current;
+    if (!el) return;
+    requestAnimationFrame(() => {
+      el.scrollTop = el.scrollHeight;
+    });
+  }
+
+  function isAtBottom() {
+    const el = chatBodyRef.current;
+    if (!el) return true;
+    return el.scrollTop + el.clientHeight >= el.scrollHeight - 8;
+  }
 
   // 持久化登录状态 - 增强版自动登录
   useEffect(() => {
@@ -102,6 +126,8 @@ export default function Home() {
     socket.on('connect_error', (err) => console.error('Socket.IO连接失败：', err.message || err));
     socket.on('online_users', (list) => setOnline(list));
     socket.on('private_message', (msg) => {
+      const atBottom = isAtBottom();
+      shouldScrollRef.current = atBottom;
       setMessages(prev => {
         const fromUser = msg.from === userId ? msg.to : msg.from;
         return {
@@ -109,6 +135,22 @@ export default function Home() {
           [fromUser]: [...(prev[fromUser] || []), msg]
         };
       });
+      if (!atBottom && (msg.from === to || msg.to === to)) {
+        setNewInConv(v => v + 1);
+      }
+      if (msg.from !== userId && to !== msg.from) {
+        setUnreadByPeer(prev => ({
+          ...prev,
+          [msg.from]: (prev[msg.from] || 0) + 1
+        }));
+        setTotalUnread(prev => prev + 1);
+      }
+    });
+    socket.on('unread_counts', (payload) => {
+      const byPeer = (payload && payload.byPeer) || {};
+      const total = (payload && payload.total) || 0;
+      setUnreadByPeer(byPeer);
+      setTotalUnread(total);
     });
     
     setIsLoading(false); // 登录完成后设置加载状态为false
@@ -135,13 +177,79 @@ export default function Home() {
       timestamp: Date.now()
     };
     socket.emit('private_message', { to, content: text });
-    // 添加到当前聊天对象的消息历史中
+    setText('');
+    shouldScrollRef.current = true;
+    setNewInConv(0);
+  }
+
+  async function fetchHistory(peer, before) {
+    if (!token) return;
+    const base = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:4000';
+    const url = new URL(`${base}/api/messages/${peer}`);
+    if (before) url.searchParams.set('before', String(before));
+    url.searchParams.set('limit', '20');
+    const resp = await fetch(url.toString(), {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    if (!resp.ok) return;
+    const data = await resp.json();
     setMessages(prev => ({
       ...prev,
-      [to]: [...(prev[to] || []), msg]
+      [peer]: before
+        ? [...(data.messages || []), ...(prev[peer] || [])]
+        : (data.messages || [])
     }));
-    setText('');
+    setCursors(prev => ({
+      ...prev,
+      [peer]: data.nextCursor || null
+    }));
+    return data;
   }
+
+  useEffect(() => {
+    if (to && token) {
+      fetchHistory(to);
+      shouldScrollRef.current = true;
+      setNewInConv(0);
+      if (socket) {
+        socket.emit('mark_read', { peer: to });
+      }
+      const base = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:4000';
+      fetch(`${base}/api/read/${to}`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } })
+        .then(resp => resp.json())
+        .then(data => {
+          if (data && data.byPeer) {
+            setUnreadByPeer(data.byPeer);
+            setTotalUnread(data.total || 0);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [to, token]);
+
+  useLayoutEffect(() => {
+    const list = messages[to] || [];
+    const tailTs = list.length ? list[list.length - 1].timestamp : 0;
+    if (!loadingMore && tailTs > tailTsRef.current) {
+      if (shouldScrollRef.current) {
+        requestAnimationFrame(() => scrollToBottom());
+      }
+      tailTsRef.current = tailTs;
+    }
+  }, [messages, to, loadingMore]);
+
+
+  useEffect(() => {
+    if (!token) return;
+    const base = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:4000';
+    fetch(`${base}/api/unread`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(resp => resp.json())
+      .then(data => {
+        setUnreadByPeer(data.byPeer || {});
+        setTotalUnread(data.total || 0);
+      })
+      .catch(() => {});
+  }, [token]);
 
   return (
     <div className="min-h-screen bg-surface dark:bg-surface-900">
@@ -170,7 +278,7 @@ export default function Home() {
                 >
                   <Menu className="w-5 h-5" />
                 </button>
-                <h1 className="text-lg font-semibold ml-4">聊天应用</h1>
+                <h1 className="text-lg font-semibold ml-4">聊天应用{totalUnread > 0 ? `（未读 ${totalUnread}）` : ''}</h1>
               </div>
               
               {/* Center section - User info */}
@@ -210,7 +318,7 @@ export default function Home() {
                       <Users className="w-5 h-5 text-primary-500" />
                     </div>
                     <div className="min-w-0 flex-1">
-                      <h2 className="text-lg font-semibold text-text truncate">在线用户</h2>
+                      <h2 className="text-lg font-semibold text-text truncate">在线用户{totalUnread > 0 ? ` · 未读 ${totalUnread}` : ''}</h2>
                       <div className="flex items-center text-xs text-text-muted">
                         <span className="font-medium">{online.filter(u => u !== userId).length} 位</span>
                       </div>
@@ -260,6 +368,9 @@ export default function Home() {
                             <div className="w-3 h-3 bg-success rounded-full mr-3"></div>
                           </div>
                           <span className="font-medium truncate flex-1">{u}</span>
+                          {unreadByPeer[u] > 0 && (
+                            <span className="ml-2 px-2 py-0.5 text-xs rounded-full bg-red-500 text-white flex-shrink-0">{unreadByPeer[u]}</span>
+                          )}
                           {to === u && (
                             <div className="ml-2 w-2 h-2 bg-primary-500 rounded-full flex-shrink-0"></div>
                           )}
@@ -274,35 +385,52 @@ export default function Home() {
 
             {/* Chat Area */}
             <main className="flex-1 flex flex-col min-w-0 bg-surface dark:bg-surface-900">
-              {/* Chat Header */}
-              <div className="bg-elevated border-b border-border px-4 sm:px-6 flex-shrink-0 h-[76px] flex flex-col justify-center">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center min-w-0 flex-1">
-                    {to ? (
-                      <>
-                        <div className="mr-3 flex-shrink-0">
-                          <MessageCircle className="w-5 h-5 text-success" />
+              {/* Chat Header - 仅在选中用户时展示 */}
+              {to && (
+                <div className="bg-elevated border-b border-border px-4 sm:px-6 flex-shrink-0 h-[76px] flex flex-col justify-center">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center min-w-0 flex-1">
+                      <div className="mr-3 flex-shrink-0">
+                        <MessageCircle className="w-5 h-5 text-success" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <h2 className="text-lg font-semibold text-text truncate"> {to}</h2>
+                        <div className="text-xs text-success">
+                          在线
                         </div>
-                        <div className="min-w-0 flex-1">
-                          <h2 className="text-lg font-semibold text-text truncate"> {to}</h2>
-                          <div className="text-xs text-success">
-                            在线
-                          </div>
-                        </div>
-                      </>
-                    ) : (
-                      <>
-                        <MessageCircle className="w-5 h-5 text-text-muted mr-3 flex-shrink-0" />
-                        <h2 className="text-lg font-semibold text-text-muted">选择用户开始聊天</h2>
-                      </>
-                    )}
+                      </div>
+                    </div>
                   </div>
-
                 </div>
-              </div>
+              )}
 
               {/* Messages */}
-              <div className="flex-1 overflow-y-auto p-4 sm:p-6">
+              <div id="chat" ref={chatBodyRef} onScroll={() => {
+                const el = chatBodyRef.current;
+                if (!el || !to || loadingMore) return;
+                el.classList.add('scrolling');
+                if (scrollTimerRef.current) clearTimeout(scrollTimerRef.current);
+                scrollTimerRef.current = setTimeout(() => {
+                  el.classList.remove('scrolling');
+                }, 800);
+                setAtBottomState(el.scrollTop + el.clientHeight >= el.scrollHeight - 8);
+                if (el.scrollTop + el.clientHeight >= el.scrollHeight - 8) {
+                  setNewInConv(0);
+                }
+                if (el.scrollTop <= 8 && cursors[to]) {
+                  setLoadingMore(true);
+                  const prevHeight = el.scrollHeight;
+                  fetchHistory(to, cursors[to]).then((data) => {
+                    requestAnimationFrame(() => {
+                      const newHeight = el.scrollHeight;
+                      if (data && Array.isArray(data.messages) && data.messages.length > 0) {
+                        el.scrollTop = newHeight - prevHeight;
+                      }
+                      setLoadingMore(false);
+                    });
+                  });
+                }
+              }} className="flex-1 overflow-y-auto p-4 sm:p-6 scrollbar-on-scroll chat-scroll relative">
                 {!to ? (
                   <div className="h-full flex flex-col items-center justify-center text-text-muted">
                     <div className="text-center max-w-sm">
@@ -341,34 +469,87 @@ export default function Home() {
                         </div>
                       </div>
                     ))}
+                    {newInConv > 0 && !atBottomState && (
+                      <div className="absolute bottom-4 right-6">
+                        <button onClick={() => { scrollToBottom(); setNewInConv(0); }} className="px-3 py-1 text-xs rounded-full bg-primary-500 text-white shadow">
+                          查看新消息 {newInConv}
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
 
-              {/* Message Input */}
-              <div className="bg-elevated border-t border-border p-4 sm:p-5 flex-shrink-0">
-                <form onSubmit={(e) => { e.preventDefault(); send(); }} className="flex items-end space-x-3">
-                  <div className="flex-1 relative">
-                    <input
-                      ref={messageInputRef}
-                      value={text}
-                      onChange={e => setText(e.target.value)}
-                      placeholder={to ? `发送消息给 ${to}...` : ''}
-                      disabled={!to}
-                      className="w-full px-4 py-3 border border-border rounded-xl text-sm sm:text-base focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors resize-none"
-                    />
-                    {!to && (
-                      <div className="absolute inset-0 flex items-center justify-center text-text-muted text-sm bg-surface-50/50 rounded-xl">
-                        请先选择一个用户开始聊天
-                      </div>
-                    )}
+              {/* Message Input - WeChat Style */}
+              <div className="bg-white dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 p-3 sm:p-4 flex-shrink-0">
+                <form onSubmit={(e) => { e.preventDefault(); send(); }} className="flex items-end space-x-2 sm:space-x-3">
+                  {/* Extension buttons area - for future features */}
+                  <div className="flex items-end space-x-1 sm:space-x-2">
+                    <button
+                      type="button"
+                      className="w-8 h-8 sm:w-9 sm:h-9 rounded-full flex items-center justify-center text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                      title="表情"
+                    >
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                    </button>
+                    <button
+                      type="button"
+                      className="w-8 h-8 sm:w-9 sm:h-9 rounded-full flex items-center justify-center text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                      title="文件"
+                    >
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                      </svg>
+                    </button>
                   </div>
+
+                  {/* Input area */}
+                  <div className="flex-1 relative">
+                    <div className={`
+                      min-h-[40px] sm:min-h-[44px] max-h-[120px] overflow-y-auto
+                      bg-gray-50 dark:bg-gray-700 
+                      border border-gray-200 dark:border-gray-600 
+                      rounded-lg sm:rounded-xl
+                      transition-all duration-200
+                      ${to ? 'focus-within:border-primary-500 focus-within:ring-1 focus-within:ring-primary-500' : ''}
+                      ${!to ? 'opacity-75' : ''}
+                    `}>
+                      <input
+                        ref={messageInputRef}
+                        value={text}
+                        onChange={e => setText(e.target.value)}
+                        placeholder={to ? `发送消息给 ${to}...` : ''}
+                        disabled={!to}
+                        className="w-full px-3 sm:px-4 py-2.5 sm:py-3 bg-transparent border-0 text-sm sm:text-base text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:ring-0 resize-none disabled:cursor-not-allowed"
+                      />
+                      {!to && (
+                        <div className="absolute inset-0 flex items-center justify-center text-gray-500 dark:text-gray-400 text-sm">
+                          <div className="flex items-center space-x-2">
+                            <MessageCircle className="w-4 h-4 opacity-60" />
+                            <span>请先选择一个用户开始聊天</span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Send button */}
                   <button
                     type="submit"
                     disabled={!to || !text.trim()}
-                    className="px-5 py-3 bg-primary-500 text-white rounded-xl text-sm sm:text-base font-semibold hover:bg-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-600 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-primary-500 transition-all transform hover:scale-[1.02] active:scale-[0.98] flex items-center justify-center min-w-[60px]"
+                    className={`
+                      w-9 h-9 sm:w-10 sm:h-10 rounded-full flex items-center justify-center
+                      bg-primary-500 text-white 
+                      hover:bg-primary-600 focus:outline-none focus:ring-2 focus:ring-primary-600 focus:ring-offset-2
+                      disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-primary-500 
+                      transition-all duration-200 transform 
+                      hover:scale-105 active:scale-95
+                      ${text.trim() && to ? 'shadow-lg hover:shadow-xl' : ''}
+                    `}
                   >
-                    <Send className="w-5 h-5" />
+                    <Send className="w-4 h-4 sm:w-5 sm:h-5" />
                   </button>
                 </form>
               </div>

@@ -7,6 +7,9 @@ A real-time chat application with multiple frontend implementations and Socket.I
 - **Real-time messaging** with Socket.IO
 - **Online user status tracking**
 - **Private one-on-one chat**
+- **Message persistence** (file-based by default) and lazy history loading on scroll-to-top
+- **Smart scrolling**: stays at bottom if you're at bottom; auto-scroll when not at bottom
+- **Clean header**: chat header only renders when a peer is selected
 - **Multiple frontend implementations**: Vite + React + TypeScript, Next.js
 - **Responsive design** with Tailwind CSS
 - **Mock authentication** for easy testing
@@ -29,20 +32,25 @@ im-next/
 
 1. **Start all services:**
    ```bash
-   docker compose build
-   docker compose up -d
+   # Production-style stack
+   docker compose -f docker-compose.prod.yml build
+   docker compose -f docker-compose.prod.yml up -d
+
+   # Or use scripts
+   chmod +x scripts/*.sh
+   ./scripts/deploy.sh deploy
    ```
 
-2. **Create test users:**
+2. **Create test users (optional):**
    ```bash
    chmod +x setup-test-users.sh
    ./setup-test-users.sh
    ```
 
 3. **Access the applications:**
-   - Vite Frontend: http://localhost:3002
    - Next.js Frontend: http://localhost:3000
-   - Backend WebSocket: http://localhost:4000
+   - Vite Frontend: http://localhost:5173
+   - Backend API/WebSocket: http://localhost:4000
 
 ### Option 2: Manual Development Setup
 
@@ -77,8 +85,9 @@ All implementations use the same mock authentication:
 
 ### Backend (Node.js + Express + Socket.IO)
 - **Port**: 4000
-- **Features**: WebSocket connection handling, online user tracking, private messaging
-- **Dependencies**: express, socket.io, cors
+- **Features**: WebSocket connection handling, online user tracking, private messaging, REST history API
+- **Persistence**: file-based JSON (dev default) with upgrade path to PostgreSQL/Supabase
+- **Dependencies**: express, socket.io, cors, node-fetch
 
 ### Vite Frontend (Primary Implementation)
 - **Port**: 3002
@@ -144,6 +153,13 @@ The message input component features:
 - `user_online`: User came online notification
 - `user_offline`: User went offline notification
 
+## REST API
+
+- `GET /health`: service health
+- `GET /api/me`: current user info (requires `Authorization: Bearer <token>`; supports mock tokens `mock_jwt_<userId>_<ts>`)
+- `GET /api/messages/:peer?limit=<n>&before=<timestamp>`: paginate history (strictly older than `before`), default limit 20
+- `POST /api/messages/:peer` body `{ content: string }`: append a message from current user to `peer`
+
 ## Environment Configuration
 
 The project uses mock authentication by default. For production deployment with real authentication, configure:
@@ -160,10 +176,10 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key
 
 ## Docker Services
 
-- `vite-frontend`: Vite React TypeScript application
-- `nextjs-frontend`: Next.js application  
-- `backend`: Socket.IO server
-- `supabase`: Supabase services (when configured)
+- `backend`: API + Socket.IO server (4000)
+- `nextjs-frontend`: Next.js application (3000)
+- `vite-frontend`: Vite React TypeScript application (5173)
+- `postgres/redis/minio/nginx`: in production stack (`docker-compose.prod.yml`)
 
 ## Testing
 
@@ -172,3 +188,9 @@ Run end-to-end tests:
 cd frontend
 npm test
 ```
+
+## Notes
+
+- Default persistence uses a simple file store (`backend/data/messages.json`) suitable for local/dev. For production, switch to PostgreSQL/Supabase and wire the storage layer accordingly.
+- Infinite scroll: history is lazily loaded when the message list is scrolled to top; scroll position is preserved during prepend.
+- Smart bottom behavior: if you are already at bottom, new messages don’t force a scroll; if not at bottom, the view auto-scrolls after render.
