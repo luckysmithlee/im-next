@@ -23,9 +23,6 @@ export default function Home() {
   const chatBodyRef = useRef(null);
   const tailTsRef = useRef(0);
   const scrollTimerRef = useRef(null);
-  const [atBottomState, setAtBottomState] = useState(true);
-  const [newInConv, setNewInConv] = useState(0);
-  const shouldScrollRef = useRef(false);
 
   function scrollToBottom() {
     const el = chatBodyRef.current;
@@ -35,11 +32,7 @@ export default function Home() {
     });
   }
 
-  function isAtBottom() {
-    const el = chatBodyRef.current;
-    if (!el) return true;
-    return el.scrollTop + el.clientHeight >= el.scrollHeight - 8;
-  }
+  
 
   // 持久化登录状态 - 增强版自动登录
   useEffect(() => {
@@ -126,8 +119,6 @@ export default function Home() {
     socket.on('connect_error', (err) => console.error('Socket.IO连接失败：', err.message || err));
     socket.on('online_users', (list) => setOnline(list));
     socket.on('private_message', (msg) => {
-      const atBottom = isAtBottom();
-      shouldScrollRef.current = atBottom;
       setMessages(prev => {
         const fromUser = msg.from === userId ? msg.to : msg.from;
         return {
@@ -135,9 +126,6 @@ export default function Home() {
           [fromUser]: [...(prev[fromUser] || []), msg]
         };
       });
-      if (!atBottom && (msg.from === to || msg.to === to)) {
-        setNewInConv(v => v + 1);
-      }
       if (msg.from !== userId && to !== msg.from) {
         setUnreadByPeer(prev => ({
           ...prev,
@@ -178,8 +166,7 @@ export default function Home() {
     };
     socket.emit('private_message', { to, content: text });
     setText('');
-    shouldScrollRef.current = true;
-    setNewInConv(0);
+    scrollToBottom();
   }
 
   async function fetchHistory(peer, before) {
@@ -208,9 +195,9 @@ export default function Home() {
 
   useEffect(() => {
     if (to && token) {
-      fetchHistory(to);
-      shouldScrollRef.current = true;
-      setNewInConv(0);
+      fetchHistory(to).then(() => {
+        scrollToBottom();
+      });
       if (socket) {
         socket.emit('mark_read', { peer: to });
       }
@@ -231,9 +218,6 @@ export default function Home() {
     const list = messages[to] || [];
     const tailTs = list.length ? list[list.length - 1].timestamp : 0;
     if (!loadingMore && tailTs > tailTsRef.current) {
-      if (shouldScrollRef.current) {
-        requestAnimationFrame(() => scrollToBottom());
-      }
       tailTsRef.current = tailTs;
     }
   }, [messages, to, loadingMore]);
@@ -413,10 +397,6 @@ export default function Home() {
                 scrollTimerRef.current = setTimeout(() => {
                   el.classList.remove('scrolling');
                 }, 800);
-                setAtBottomState(el.scrollTop + el.clientHeight >= el.scrollHeight - 8);
-                if (el.scrollTop + el.clientHeight >= el.scrollHeight - 8) {
-                  setNewInConv(0);
-                }
                 if (el.scrollTop <= 8 && cursors[to]) {
                   setLoadingMore(true);
                   const prevHeight = el.scrollHeight;
@@ -469,13 +449,6 @@ export default function Home() {
                         </div>
                       </div>
                     ))}
-                    {newInConv > 0 && !atBottomState && (
-                      <div className="absolute bottom-4 right-6">
-                        <button onClick={() => { scrollToBottom(); setNewInConv(0); }} className="px-3 py-1 text-xs rounded-full bg-primary-500 text-white shadow">
-                          查看新消息 {newInConv}
-                        </button>
-                      </div>
-                    )}
                   </div>
                 )}
               </div>
