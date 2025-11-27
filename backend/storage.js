@@ -82,6 +82,29 @@ function resetUnread(userId, peerId) {
   return { byPeer: getUnreadByPeer(userId), total: getTotalUnread(userId) };
 }
 
+function listPeers(userId) {
+  const res = [];
+  for (const key of Object.keys(db.conversations)) {
+    const parts = key.split('|');
+    if (!parts.includes(userId)) continue;
+    const peer = parts[0] === userId ? parts[1] : parts[0];
+    const list = db.conversations[key] || [];
+    const lastTs = list.length ? list[list.length - 1].timestamp : 0;
+    const unread = (db.unread[userId] && db.unread[userId][peer]) || 0;
+    res.push({ peer, lastTs, unread });
+  }
+  res.sort((a, b) => b.lastTs - a.lastTs);
+  return res;
+}
+
+function deleteConversation(userA, userB) {
+  const key = keyFor(userA, userB);
+  db.conversations[key] = [];
+  if (db.unread[userA]) delete db.unread[userA][userB];
+  save();
+  return true;
+}
+
 module.exports = {
   load,
   appendMessage,
@@ -89,4 +112,6 @@ module.exports = {
   getUnreadByPeer,
   getTotalUnread,
   resetUnread,
+  listPeers,
+  deleteConversation,
 };

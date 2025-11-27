@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useLayoutEffect } from 'react';
+import { useState, useRef, useEffect, useLayoutEffect, useMemo } from 'react';
 import LoginForm from '../components/LoginForm';
 import io from 'socket.io-client';
 import { Menu, X, Users, MessageCircle, Send, UserCircle } from 'lucide-react';
@@ -19,13 +19,38 @@ export default function Home() {
   const [unreadByPeer, setUnreadByPeer] = useState({});
   const [totalUnread, setTotalUnread] = useState(0);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [loadError, setLoadError] = useState({});
   const messageInputRef = useRef(null);
   const chatBodyRef = useRef(null);
   const tailTsRef = useRef(0);
   const scrollTimerRef = useRef(null);
   const lastActionRef = useRef(null);
-  const [loadError, setLoadError] = useState({});
   const scrollThrottleRef = useRef(0);
+  const [conversations, setConversations] = useState([]);
+  const [collapseHistory, setCollapseHistory] = useState(false);
+  const [collapseOnline, setCollapseOnline] = useState(false);
+  const [stableOnline, setStableOnline] = useState([]);
+  const onlineUpdateTimerRef = useRef(null);
+  const unreadUpdateTimerRef = useRef(null);
+  const activePeerRef = useRef('');
+  const onlineList = useMemo(() => stableOnline.filter(u => u !== userId), [stableOnline, userId]);
+  const historyList = useMemo(() => conversations.filter(c => !stableOnline.includes(c.peer)), [conversations, stableOnline]);
+
+  async function fetchJSON(url, options = {}, retry = 2, timeout = 6000) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeout);
+    try {
+      const resp = await fetch(url, { ...options, signal: controller.signal });
+      if (!resp.ok) throw new Error(String(resp.status));
+      const data = await resp.json();
+      return data;
+    } catch (e) {
+      if (retry > 0) return fetchJSON(url, options, retry - 1, timeout);
+      return null;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
 
   function scrollToBottom() {
     const el = chatBodyRef.current;
@@ -147,11 +172,22 @@ export default function Home() {
     socket.on('unread_counts', (payload) => {
       const byPeer = (payload && payload.byPeer) || {};
       const total = (payload && payload.total) || 0;
-      setUnreadByPeer(byPeer);
-      setTotalUnread(total);
+      if (unreadUpdateTimerRef.current) clearTimeout(unreadUpdateTimerRef.current);
+      unreadUpdateTimerRef.current = setTimeout(() => {
+        setUnreadByPeer(byPeer);
+        setTotalUnread(total);
+      }, 350);
     });
+    fetchConversations(tkn);
     
     setIsLoading(false); // 登录完成后设置加载状态为false
+  }
+
+  async function fetchConversations(tok) {
+    const base = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:4000';
+    const data = await fetchJSON(`${base}/api/conversations`, { headers: { Authorization: `Bearer ${tok || token}` } });
+    if (!data) return;
+    setConversations(data.conversations || []);
   }
 
   // 当选择用户时自动聚焦到消息输入框
@@ -207,6 +243,10 @@ export default function Home() {
       setLoadError(prev => ({ ...prev, [peer]: true }));
       return;
     }
+    // Guard against out-of-date responses when rapidly switching sessions
+    if (!before && activePeerRef.current && activePeerRef.current !== peer) {
+      return;
+    }
     setMessages(prev => ({
       ...prev,
       [peer]: before
@@ -222,6 +262,7 @@ export default function Home() {
 
   useEffect(() => {
     if (to && token) {
+      activePeerRef.current = to;
       lastActionRef.current = 'init';
       fetchHistory(to).then(() => {
         
@@ -242,6 +283,16 @@ export default function Home() {
     }
   }, [to, token]);
 
+  useEffect(() => {
+    if (onlineUpdateTimerRef.current) clearTimeout(onlineUpdateTimerRef.current);
+    onlineUpdateTimerRef.current = setTimeout(() => {
+      setStableOnline(online || []);
+    }, 350);
+    return () => {
+      if (onlineUpdateTimerRef.current) clearTimeout(onlineUpdateTimerRef.current);
+    };
+  }, [online]);
+
   useLayoutEffect(() => {
     const list = messages[to] || [];
     const tailTs = list.length ? list[list.length - 1].timestamp : 0;
@@ -258,13 +309,15 @@ export default function Home() {
   useEffect(() => {
     if (!token) return;
     const base = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:4000';
-    fetch(`${base}/api/unread`, { headers: { Authorization: `Bearer ${token}` } })
-      .then(resp => resp.json())
+    fetchJSON(`${base}/api/unread`, { headers: { Authorization: `Bearer ${token}` } })
       .then(data => {
-        setUnreadByPeer(data.byPeer || {});
-        setTotalUnread(data.total || 0);
-      })
-      .catch(() => {});
+        if (!data) return;
+        if (unreadUpdateTimerRef.current) clearTimeout(unreadUpdateTimerRef.current);
+        unreadUpdateTimerRef.current = setTimeout(() => {
+          setUnreadByPeer(data.byPeer || {});
+          setTotalUnread(data.total || 0);
+        }, 350);
+      });
   }, [token]);
 
   return (
@@ -336,7 +389,7 @@ export default function Home() {
                     <div className="min-w-0 flex-1">
                       <h2 className="text-lg font-semibold text-text truncate">在线用户{totalUnread > 0 ? ` · 未读 ${totalUnread}` : ''}</h2>
                       <div className="flex items-center text-xs text-text-muted">
-                        <span className="font-medium">{online.filter(u => u !== userId).length} 位</span>
+                        <span className="font-medium">{onlineList.length} 位</span>
                       </div>
                     </div>
                   </div>
@@ -350,49 +403,110 @@ export default function Home() {
                 </div>
               </div>
               
-              {/* Users List */}
               <div className="flex-1 overflow-y-auto">
-                {online.filter(u => u !== userId).length === 0 ? (
-                  <div className="flex flex-col items-center justify-center h-full text-text-muted px-4 py-8">
-                    <UserCircle className="w-12 h-12 mb-3 opacity-40" />
-                    <p className="text-sm text-center">暂无其他用户在线</p>
-                    <p className="text-xs text-center mt-1 opacity-60">等待其他用户加入</p>
-                  </div>
-                ) : (
+                <div className="px-2 py-2 border-b border-border">
+                  <button onClick={() => setCollapseOnline(!collapseOnline)} className="w-full flex items-center justify-between text-sm">
+                    <span>在线用户</span>
+                    <span>{collapseOnline ? '▶' : '▼'}</span>
+                  </button>
+                </div>
+                {!collapseOnline && (
                   <div className="p-2 space-y-1">
-                    {online.filter(u => u !== userId).map(u => (
-                      <button
-                        key={u}
-                        onClick={() => {
-                          setTo(u);
-                          setShowSidebar(false);
-                          // 延迟聚焦以确保侧边栏关闭后输入框可见
-                          setTimeout(() => {
-                            if (messageInputRef.current) {
-                              messageInputRef.current.focus();
-                            }
-                          }, 100);
-                        }}
-                        className={`w-full text-left p-3 rounded-lg text-sm transition-all duration-200 flex items-center ${
-                          to === u 
-                            ? 'bg-primary-100 dark:bg-primary-900 text-primary-700 dark:text-primary-300 border-2 border-primary-300 dark:border-primary-700 shadow-sm' 
-                            : 'hover:bg-surface-50 dark:hover:bg-surface-800 text-text-muted hover:text-text hover:shadow-sm'
-                        }`}
-                      >
-                        <div className="flex items-center flex-1 min-w-0">
-                          <div className="flex-shrink-0">
-                            <div className="w-3 h-3 bg-success rounded-full mr-3"></div>
+                    {onlineList.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center text-text-muted px-4 py-8">
+                        <UserCircle className="w-12 h-12 mb-3 opacity-40" />
+                        <p className="text-sm text-center">暂无其他用户在线</p>
+                        <p className="text-xs text-center mt-1 opacity-60">等待其他用户加入</p>
+                      </div>
+                    ) : (
+                      onlineList.map(u => (
+                        <button
+                          key={u}
+                          onClick={() => {
+                            setTo(u);
+                            if (typeof window !== 'undefined' && window.innerWidth < 1024) setShowSidebar(false);
+                            setTimeout(() => {
+                              if (messageInputRef.current) {
+                                messageInputRef.current.focus();
+                              }
+                            }, 100);
+                          }}
+                          className={`w-full text-left p-3 rounded-lg text-sm transition-all duration-200 flex items-center ${
+                            to === u 
+                              ? 'bg-primary-100 dark:bg-primary-900 text-primary-700 dark:text-primary-300 border-2 border-primary-300 dark:border-primary-700 shadow-sm' 
+                              : 'hover:bg-surface-50 dark:hover:bg-surface-800 text-text-muted hover:text-text hover:shadow-sm'
+                          }`}
+                        >
+                          <div className="flex items-center flex-1 min-w-0">
+                            <div className="flex-shrink-0">
+                              <div className="w-3 h-3 bg-success rounded-full mr-3"></div>
+                            </div>
+                            <span className="font-medium truncate flex-1">{u}</span>
+                            {to === u && (
+                              <div className="ml-2 w-2 h-2 bg-primary-500 rounded-full flex-shrink-0"></div>
+                            )}
                           </div>
-                          <span className="font-medium truncate flex-1">{u}</span>
-                          {unreadByPeer[u] > 0 && (
-                            <span className="ml-2 px-2 py-0.5 text-xs rounded-full bg-red-500 text-white flex-shrink-0">{unreadByPeer[u]}</span>
-                          )}
-                          {to === u && (
-                            <div className="ml-2 w-2 h-2 bg-primary-500 rounded-full flex-shrink-0"></div>
-                          )}
+                        </button>
+                      ))
+                    )}
+                  </div>
+                )}
+                <div className="px-2 py-2 border-t border-border">
+                  <button onClick={() => setCollapseHistory(!collapseHistory)} className="w-full flex items-center justify-between text-sm">
+                    <span>历史会话</span>
+                    <span>{collapseHistory ? '▶' : '▼'}</span>
+                  </button>
+                </div>
+                {!collapseHistory && (
+                  <div className="p-2 space-y-1">
+                    {historyList.length === 0 ? (
+                      <div className="text-xs text-text-muted px-3 py-2">暂无历史会话</div>
+                    ) : (
+                      historyList.map(c => (
+                        <div
+                          key={c.peer}
+                          role="button"
+                          tabIndex={0}
+                          onClick={() => {
+                            setTo(c.peer);
+                            if (typeof window !== 'undefined' && window.innerWidth < 1024) setShowSidebar(false);
+                            setTimeout(() => { if (messageInputRef.current) messageInputRef.current.focus(); }, 100);
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault();
+                              setTo(c.peer);
+                              if (typeof window !== 'undefined' && window.innerWidth < 1024) setShowSidebar(false);
+                              setTimeout(() => { if (messageInputRef.current) messageInputRef.current.focus(); }, 100);
+                            }
+                          }}
+                          className={`w-full p-3 rounded-lg text-sm transition-all duration-200 flex items-center cursor-pointer ${to === c.peer ? 'bg-primary-100 dark:bg-primary-900 text-primary-700 dark:text-primary-300 border-2 border-primary-300 dark:border-primary-700 shadow-sm' : 'hover:bg-surface-50 dark:hover:bg-surface-800 text-text-muted hover:text-text hover:shadow-sm'}`}
+                        >
+                          <div className="flex items-center flex-1 min-w-0">
+                            <div className="flex-shrink-0">
+                            <div className={`w-3 h-3 rounded-full mr-3 ${stableOnline.includes(c.peer) ? 'bg-success' : 'bg-gray-400'}`}></div>
+                            </div>
+                            <span className="font-medium truncate flex-1">{c.peer}</span>
+                            {unreadByPeer[c.peer] > 0 && (
+                              <span className="ml-2 px-2 py-0.5 text-xs rounded-full bg-red-500 text-white flex-shrink-0">{unreadByPeer[c.peer]}</span>
+                            )}
+                            {to === c.peer && <div className="ml-2 w-2 h-2 bg-primary-500 rounded-full flex-shrink-0"></div>}
+                          </div>
+                          <button
+                            onClick={async (e) => {
+                              e.stopPropagation();
+                              const base = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:4000';
+                              await fetch(`${base}/api/conversations/${c.peer}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } });
+                              setMessages(prev => { const next = { ...prev }; delete next[c.peer]; return next; });
+                              fetchConversations();
+                            }}
+                            className="ml-2 px-2 py-1 text-xs rounded-md border"
+                          >
+                            删除
+                          </button>
                         </div>
-                      </button>
-                    ))}
+                      ))
+                    )}
                   </div>
                 )}
               </div>

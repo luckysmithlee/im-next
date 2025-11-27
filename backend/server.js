@@ -19,7 +19,7 @@ const GOTRUE_URL = process.env.GOTRUE_URL || 'http://localhost:9999/auth/v1';
 const storage = require('./storage');
 storage.load();
 
-// 简单在线用户映射: userId -> socketId
+// 在线用户映射: userId -> Set<socketId>
 const onlineUsers = new Map();
 
 async function verifyToken(token) {
@@ -77,7 +77,8 @@ io.use(async (socket, next) => {
 io.on('connection', (socket) => {
   const user = socket.user;
   console.log('用户已连接：', user.email, 'ID:', user.id);
-  onlineUsers.set(user.id, socket.id);
+  if (!onlineUsers.has(user.id)) onlineUsers.set(user.id, new Set());
+  onlineUsers.get(user.id).add(socket.id);
 
   // 推送在线用户列表
   function broadcastOnline() {
@@ -95,7 +96,7 @@ io.on('connection', (socket) => {
   }
 
   socket.on('private_message', (payload) => {
-    const toSocketId = onlineUsers.get(payload.to);
+    const toSockets = onlineUsers.get(payload.to);
     const msg = {
       from: user.id,
       to: payload.to,
@@ -104,11 +105,13 @@ io.on('connection', (socket) => {
       clientId: payload.clientId || undefined
     };
     storage.appendMessage(user.id, payload.to, payload.content, msg.timestamp, { clientId: msg.clientId });
-    if (toSocketId) {
-      io.to(toSocketId).emit('private_message', msg);
-      const byPeer = storage.getUnreadByPeer(payload.to);
-      const total = storage.getTotalUnread(payload.to);
-      io.to(toSocketId).emit('unread_counts', { byPeer, total });
+    if (toSockets && toSockets.size > 0) {
+      for (const sid of toSockets) {
+        io.to(sid).emit('private_message', msg);
+        const byPeer = storage.getUnreadByPeer(payload.to);
+        const total = storage.getTotalUnread(payload.to);
+        io.to(sid).emit('unread_counts', { byPeer, total });
+      }
     }
     io.to(socket.id).emit('private_message', msg);
   });
@@ -122,7 +125,11 @@ io.on('connection', (socket) => {
 
   socket.on('disconnect', () => {
     console.log('disconnect', user.id);
-    onlineUsers.delete(user.id);
+    const set = onlineUsers.get(user.id);
+    if (set) {
+      set.delete(socket.id);
+      if (set.size === 0) onlineUsers.delete(user.id);
+    }
     broadcastOnline();
   });
 });
@@ -152,6 +159,18 @@ app.get('/api/unread', authMiddleware, (req, res) => {
   res.json({ byPeer, total });
 });
 
+app.get('/api/online-stats', authMiddleware, (req, res) => {
+  const totalSockets = io.sockets.sockets.size;
+  const engineClients = io.engine.clientsCount;
+  const users = Array.from(onlineUsers.entries()).map(([userId, socketId]) => ({ userId, socketId }));
+  res.json({ totalSockets, engineClients, onlineUsers: users });
+});
+
+app.get('/api/conversations', authMiddleware, (req, res) => {
+  const list = storage.listPeers(req.user.id);
+  res.json({ conversations: list });
+});
+
 // 标记与某个对端会话为已读
 app.post('/api/read/:peer', authMiddleware, (req, res) => {
   const peer = req.params.peer;
@@ -159,6 +178,16 @@ app.post('/api/read/:peer', authMiddleware, (req, res) => {
   const selfSocketId = onlineUsers.get(req.user.id);
   if (selfSocketId) io.to(selfSocketId).emit('unread_counts', result);
   res.json({ ok: true, ...result });
+});
+
+app.delete('/api/conversations/:peer', authMiddleware, (req, res) => {
+  const peer = req.params.peer;
+  storage.deleteConversation(req.user.id, peer);
+  const selfSocketId = onlineUsers.get(req.user.id);
+  const byPeer = storage.getUnreadByPeer(req.user.id);
+  const total = storage.getTotalUnread(req.user.id);
+  if (selfSocketId) io.to(selfSocketId).emit('unread_counts', { byPeer, total });
+  res.json({ ok: true });
 });
 
 // 可选：通过HTTP写入一条消息（用于测试/回放）
