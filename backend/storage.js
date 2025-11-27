@@ -35,10 +35,10 @@ function keyFor(a, b) {
   return a < b ? `${a}|${b}` : `${b}|${a}`;
 }
 
-function appendMessage(from, to, content, timestamp) {
+function appendMessage(from, to, content, timestamp, extra) {
   const key = keyFor(from, to);
   if (!db.conversations[key]) db.conversations[key] = [];
-  const msg = { from, to, content, timestamp: timestamp || Date.now() };
+  const msg = { from, to, content, timestamp: timestamp || Date.now(), ...(extra || {}) };
   db.conversations[key].push(msg);
   // 保持按时间排序
   db.conversations[key].sort((x, y) => x.timestamp - y.timestamp);

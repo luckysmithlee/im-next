@@ -100,9 +100,10 @@ io.on('connection', (socket) => {
       from: user.id,
       to: payload.to,
       content: payload.content,
-      timestamp: Date.now()
+      timestamp: Date.now(),
+      clientId: payload.clientId || undefined
     };
-    storage.appendMessage(user.id, payload.to, payload.content, msg.timestamp);
+    storage.appendMessage(user.id, payload.to, payload.content, msg.timestamp, { clientId: msg.clientId });
     if (toSocketId) {
       io.to(toSocketId).emit('private_message', msg);
       const byPeer = storage.getUnreadByPeer(payload.to);

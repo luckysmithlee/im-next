@@ -23,6 +23,9 @@ export default function Home() {
   const chatBodyRef = useRef(null);
   const tailTsRef = useRef(0);
   const scrollTimerRef = useRef(null);
+  const lastActionRef = useRef(null);
+  const [loadError, setLoadError] = useState({});
+  const scrollThrottleRef = useRef(0);
 
   function scrollToBottom() {
     const el = chatBodyRef.current;
@@ -114,17 +117,24 @@ export default function Home() {
     
     // 建立 socket 连接并带上 token
     socket = io(process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:4000', {
-      auth: { token: tkn }
+      auth: { token: tkn },
+      transports: ['websocket']
     });
     socket.on('connect_error', (err) => console.error('Socket.IO连接失败：', err.message || err));
     socket.on('online_users', (list) => setOnline(list));
     socket.on('private_message', (msg) => {
       setMessages(prev => {
         const fromUser = msg.from === userId ? msg.to : msg.from;
-        return {
-          ...prev,
-          [fromUser]: [...(prev[fromUser] || []), msg]
-        };
+        const list = prev[fromUser] || [];
+        if (msg.clientId) {
+          const idx = list.findIndex(m => m.clientId === msg.clientId);
+          if (idx >= 0) {
+            const next = [...list];
+            next[idx] = msg;
+            return { ...prev, [fromUser]: next };
+          }
+        }
+        return { ...prev, [fromUser]: [...list, msg] };
       });
       if (msg.from !== userId && to !== msg.from) {
         setUnreadByPeer(prev => ({
@@ -158,15 +168,22 @@ export default function Home() {
 
   function send() {
     if (!socket || !to) return;
+    const clientId = `c_${Date.now()}_${Math.random().toString(36).slice(2)}`;
     const msg = {
       from: userId,
       to: to,
       content: text,
-      timestamp: Date.now()
+      timestamp: Date.now(),
+      clientId,
+      pending: true
     };
-    socket.emit('private_message', { to, content: text });
+    setMessages(prev => ({
+      ...prev,
+      [to]: [...(prev[to] || []), msg]
+    }));
+    socket.emit('private_message', { to, content: text, clientId });
     setText('');
-    scrollToBottom();
+    lastActionRef.current = 'send';
   }
 
   async function fetchHistory(peer, before) {
@@ -175,11 +192,21 @@ export default function Home() {
     const url = new URL(`${base}/api/messages/${peer}`);
     if (before) url.searchParams.set('before', String(before));
     url.searchParams.set('limit', '20');
-    const resp = await fetch(url.toString(), {
-      headers: { Authorization: `Bearer ${token}` }
-    });
-    if (!resp.ok) return;
-    const data = await resp.json();
+    let data;
+    try {
+      const resp = await fetch(url.toString(), {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (!resp.ok) {
+        setLoadError(prev => ({ ...prev, [peer]: true }));
+        return;
+      }
+      data = await resp.json();
+      setLoadError(prev => ({ ...prev, [peer]: false }));
+    } catch (e) {
+      setLoadError(prev => ({ ...prev, [peer]: true }));
+      return;
+    }
     setMessages(prev => ({
       ...prev,
       [peer]: before
@@ -195,8 +222,9 @@ export default function Home() {
 
   useEffect(() => {
     if (to && token) {
+      lastActionRef.current = 'init';
       fetchHistory(to).then(() => {
-        scrollToBottom();
+        
       });
       if (socket) {
         socket.emit('mark_read', { peer: to });
@@ -218,6 +246,10 @@ export default function Home() {
     const list = messages[to] || [];
     const tailTs = list.length ? list[list.length - 1].timestamp : 0;
     if (!loadingMore && tailTs > tailTsRef.current) {
+      if (lastActionRef.current === 'init' || lastActionRef.current === 'send') {
+        scrollToBottom();
+        lastActionRef.current = null;
+      }
       tailTsRef.current = tailTs;
     }
   }, [messages, to, loadingMore]);
@@ -392,12 +424,16 @@ export default function Home() {
               <div id="chat" ref={chatBodyRef} onScroll={() => {
                 const el = chatBodyRef.current;
                 if (!el || !to || loadingMore) return;
+                const now = Date.now();
+                if (now - scrollThrottleRef.current < 80) return;
+                scrollThrottleRef.current = now;
                 el.classList.add('scrolling');
                 if (scrollTimerRef.current) clearTimeout(scrollTimerRef.current);
                 scrollTimerRef.current = setTimeout(() => {
                   el.classList.remove('scrolling');
                 }, 800);
                 if (el.scrollTop <= 8 && cursors[to]) {
+                  lastActionRef.current = 'loadMore';
                   setLoadingMore(true);
                   const prevHeight = el.scrollHeight;
                   fetchHistory(to, cursors[to]).then((data) => {
@@ -429,6 +465,20 @@ export default function Home() {
                   </div>
                 ) : (
                   <div className="space-y-4">
+                    {loadingMore && (
+                      <div className="flex justify-center">
+                        <div className="w-4 h-4 border-2 border-primary-500 border-t-transparent rounded-full animate-spin"></div>
+                        <span className="ml-2 text-xs text-text-muted">加载中...</span>
+                      </div>
+                    )}
+                    {loadError[to] && (
+                      <div className="flex justify-center">
+                        <button onClick={() => { setLoadingMore(true); fetchHistory(to, cursors[to]).then(() => setLoadingMore(false)); }} className="px-3 py-1 text-xs rounded-md border">加载失败，重试</button>
+                      </div>
+                    )}
+                    {!cursors[to] && (messages[to] && messages[to].length > 0) && !loadingMore && !loadError[to] && (
+                      <div className="flex justify-center text-xs text-text-muted">没有更多历史</div>
+                    )}
                     {messages[to].map((m, i) => (
                       <div key={i} className={`flex ${m.from === userId ? 'justify-end' : 'justify-start'}`}>
                         <div className={`max-w-[75%] sm:max-w-sm lg:max-w-md px-4 py-3 rounded-2xl shadow-sm ${
