@@ -8,11 +8,14 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 const server = http.createServer(app);
-const io = new Server(server, { 
-  cors: { 
+const io = new Server(server, {
+  cors: {
     origin: "*",
-    methods: ["GET", "POST"]
-  } 
+    methods: ["GET", "POST"],
+  },
+  transports: ["websocket", "polling"],
+  pingTimeout: 20000,
+  pingInterval: 25000,
 });
 
 const GOTRUE_URL = process.env.GOTRUE_URL || 'http://localhost:9999/auth/v1';

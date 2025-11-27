@@ -52,6 +52,22 @@ export default function Home() {
     }
   }
 
+  function getBackendBase() {
+    const raw = process.env.NEXT_PUBLIC_BACKEND_URL;
+    if (raw && typeof raw === 'string' && raw.trim().length > 0) {
+      let v = raw.trim();
+      if (v.startsWith(':')) {
+        const host = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
+        v = `http://${host}${v}`;
+      } else if (!/^https?:\/\//.test(v)) {
+        v = `http://${v}`;
+      }
+      return v;
+    }
+    const host = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
+    return `http://${host}:4000`;
+  }
+
   function scrollToBottom() {
     const el = chatBodyRef.current;
     if (!el) return;
@@ -141,11 +157,23 @@ export default function Home() {
     }
     
     // 建立 socket 连接并带上 token
-    socket = io(process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:4000', {
+    socket = io(getBackendBase(), {
       auth: { token: tkn },
-      transports: ['websocket']
+      reconnection: true,
+      reconnectionAttempts: Infinity,
+      reconnectionDelay: 500,
+      reconnectionDelayMax: 4000,
+      timeout: 8000,
+      transports: ["websocket", "polling"],
     });
-    socket.on('connect_error', (err) => console.error('Socket.IO连接失败：', err.message || err));
+    const lastErrRef = { t: 0 };
+    socket.on('connect_error', (err) => {
+      const now = Date.now();
+      if (now - lastErrRef.t > 5000) {
+        console.error('Socket.IO连接失败：', err?.message || err);
+        lastErrRef.t = now;
+      }
+    });
     socket.on('online_users', (list) => setOnline(list));
     socket.on('private_message', (msg) => {
       setMessages(prev => {
@@ -184,7 +212,7 @@ export default function Home() {
   }
 
   async function fetchConversations(tok) {
-    const base = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:4000';
+    const base = getBackendBase();
     const data = await fetchJSON(`${base}/api/conversations`, { headers: { Authorization: `Bearer ${tok || token}` } });
     if (!data) return;
     setConversations(data.conversations || []);
@@ -224,25 +252,16 @@ export default function Home() {
 
   async function fetchHistory(peer, before) {
     if (!token) return;
-    const base = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:4000';
+    const base = getBackendBase();
     const url = new URL(`${base}/api/messages/${peer}`);
     if (before) url.searchParams.set('before', String(before));
     url.searchParams.set('limit', '20');
-    let data;
-    try {
-      const resp = await fetch(url.toString(), {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      if (!resp.ok) {
-        setLoadError(prev => ({ ...prev, [peer]: true }));
-        return;
-      }
-      data = await resp.json();
-      setLoadError(prev => ({ ...prev, [peer]: false }));
-    } catch (e) {
+    const data = await fetchJSON(url.toString(), { headers: { Authorization: `Bearer ${token}` } }, 2, 6000);
+    if (!data) {
       setLoadError(prev => ({ ...prev, [peer]: true }));
       return;
     }
+    setLoadError(prev => ({ ...prev, [peer]: false }));
     // Guard against out-of-date responses when rapidly switching sessions
     if (!before && activePeerRef.current && activePeerRef.current !== peer) {
       return;
@@ -270,16 +289,14 @@ export default function Home() {
       if (socket) {
         socket.emit('mark_read', { peer: to });
       }
-      const base = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:4000';
-      fetch(`${base}/api/read/${to}`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } })
-        .then(resp => resp.json())
+      const base = getBackendBase();
+      fetchJSON(`${base}/api/read/${to}`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } })
         .then(data => {
           if (data && data.byPeer) {
             setUnreadByPeer(data.byPeer);
             setTotalUnread(data.total || 0);
           }
-        })
-        .catch(() => {});
+        });
     }
   }, [to, token]);
 
@@ -308,7 +325,7 @@ export default function Home() {
 
   useEffect(() => {
     if (!token) return;
-    const base = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:4000';
+    const base = getBackendBase();
     fetchJSON(`${base}/api/unread`, { headers: { Authorization: `Bearer ${token}` } })
       .then(data => {
         if (!data) return;
