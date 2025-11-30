@@ -17,6 +17,20 @@ const io = new Server(server, {
   pingTimeout: 20000,
   pingInterval: 25000,
 });
+const metrics = { messagesSent: 0, messagesDelivered: 0, disconnects: 0 };
+let lagSum = 0, lagCount = 0, lagMax = 0;
+let _lastLagTs = Date.now();
+const _lagInterval = 1000;
+setInterval(() => {
+  const now = Date.now();
+  const lag = now - _lastLagTs - _lagInterval;
+  if (lag > 0) {
+    lagSum += lag;
+    lagCount += 1;
+    if (lag > lagMax) lagMax = lag;
+  }
+  _lastLagTs = now;
+}, _lagInterval);
 
 const GOTRUE_URL = process.env.GOTRUE_URL || 'http://localhost:9999/auth/v1';
 const storage = require('./storage');
@@ -82,6 +96,7 @@ io.on('connection', (socket) => {
   console.log('用户已连接：', user.email, 'ID:', user.id);
   if (!onlineUsers.has(user.id)) onlineUsers.set(user.id, new Set());
   onlineUsers.get(user.id).add(socket.id);
+  socket.join(user.id);
 
   // 推送在线用户列表
   function broadcastOnline() {
@@ -98,7 +113,7 @@ io.on('connection', (socket) => {
     console.error('发送初始未读计数失败', e.message || e);
   }
 
-  socket.on('private_message', (payload) => {
+  socket.on('private_message', (payload, ack) => {
     const toSockets = onlineUsers.get(payload.to);
     const msg = {
       from: user.id,
@@ -107,16 +122,19 @@ io.on('connection', (socket) => {
       timestamp: Date.now(),
       clientId: payload.clientId || undefined
     };
+    metrics.messagesSent += 1;
     storage.appendMessage(user.id, payload.to, payload.content, msg.timestamp, { clientId: msg.clientId });
     if (toSockets && toSockets.size > 0) {
-      for (const sid of toSockets) {
-        io.to(sid).emit('private_message', msg);
-        const byPeer = storage.getUnreadByPeer(payload.to);
-        const total = storage.getTotalUnread(payload.to);
-        io.to(sid).emit('unread_counts', { byPeer, total });
-      }
+      io.to(payload.to).emit('private_message', msg);
+      const byPeer = storage.getUnreadByPeer(payload.to);
+      const total = storage.getTotalUnread(payload.to);
+      io.to(payload.to).emit('unread_counts', { byPeer, total });
+      metrics.messagesDelivered += toSockets.size;
     }
     io.to(socket.id).emit('private_message', msg);
+    if (typeof ack === 'function') {
+      try { ack({ ok: true }); } catch {}
+    }
   });
 
   socket.on('mark_read', (payload) => {
@@ -134,6 +152,7 @@ io.on('connection', (socket) => {
       if (set.size === 0) onlineUsers.delete(user.id);
     }
     broadcastOnline();
+    metrics.disconnects += 1;
   });
 });
 
@@ -165,8 +184,18 @@ app.get('/api/unread', authMiddleware, (req, res) => {
 app.get('/api/online-stats', authMiddleware, (req, res) => {
   const totalSockets = io.sockets.sockets.size;
   const engineClients = io.engine.clientsCount;
-  const users = Array.from(onlineUsers.entries()).map(([userId, socketId]) => ({ userId, socketId }));
+  const users = Array.from(onlineUsers.entries()).map(([userId, set]) => ({ userId, sockets: Array.from(set) }));
   res.json({ totalSockets, engineClients, onlineUsers: users });
+});
+
+app.get('/api/metrics', authMiddleware, (req, res) => {
+  res.json({
+    messagesSent: metrics.messagesSent,
+    messagesDelivered: metrics.messagesDelivered,
+    disconnects: metrics.disconnects,
+    eventLoopLagAvgMs: lagCount ? +(lagSum / lagCount).toFixed(2) : 0,
+    eventLoopLagMaxMs: +lagMax.toFixed(2),
+  });
 });
 
 app.get('/api/conversations', authMiddleware, (req, res) => {
