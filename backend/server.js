@@ -233,3 +233,8 @@ app.post('/api/messages/:peer', authMiddleware, (req, res) => {
 
 const PORT = process.env.PORT || 4000;
 server.listen(PORT, () => console.log(`Server listening on ${PORT}`));
+app.post('/api/session/active/:peer', authMiddleware, (req, res) => {
+  const peer = req.params.peer;
+  storage.setLastActive(req.user.id, peer);
+  res.json({ ok: true });
+});

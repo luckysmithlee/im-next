@@ -4,7 +4,7 @@ const path = require('path');
 const DATA_DIR = path.join(__dirname, 'data');
 const MSG_FILE = path.join(DATA_DIR, 'messages.json');
 
-let db = { conversations: {}, unread: {} };
+let db = { conversations: {}, unread: {}, session: {} };
 
 function ensureFile() {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -15,11 +15,12 @@ function load() {
   ensureFile();
   try {
     const text = fs.readFileSync(MSG_FILE, 'utf8');
-    db = JSON.parse(text || '{"conversations":{}, "unread":{}}');
+    db = JSON.parse(text || '{"conversations":{}, "unread":{}, "session":{}}');
     if (!db.conversations) db.conversations = {};
     if (!db.unread) db.unread = {};
+    if (!db.session) db.session = {};
   } catch {
-    db = { conversations: {}, unread: {} };
+    db = { conversations: {}, unread: {}, session: {} };
   }
 }
 
@@ -78,8 +79,22 @@ function getTotalUnread(userId) {
 function resetUnread(userId, peerId) {
   if (!db.unread[userId]) db.unread[userId] = {};
   db.unread[userId][peerId] = 0;
+  if (!db.session[userId]) db.session[userId] = {};
+  if (!db.session[userId][peerId]) db.session[userId][peerId] = {};
+  db.session[userId][peerId].lastRead = Date.now();
   save();
   return { byPeer: getUnreadByPeer(userId), total: getTotalUnread(userId) };
+}
+
+function setLastActive(userId, peerId) {
+  if (!db.session[userId]) db.session[userId] = {};
+  if (!db.session[userId][peerId]) db.session[userId][peerId] = {};
+  db.session[userId][peerId].lastActive = Date.now();
+  save();
+}
+
+function getSession(userId) {
+  return { ...(db.session[userId] || {}) };
 }
 
 function listPeers(userId) {
@@ -91,9 +106,10 @@ function listPeers(userId) {
     const list = db.conversations[key] || [];
     const lastTs = list.length ? list[list.length - 1].timestamp : 0;
     const unread = (db.unread[userId] && db.unread[userId][peer]) || 0;
-    res.push({ peer, lastTs, unread });
+    const sess = (db.session[userId] && db.session[userId][peer]) || {};
+    res.push({ peer, lastTs, unread, lastActive: sess.lastActive || 0, lastRead: sess.lastRead || 0 });
   }
-  res.sort((a, b) => b.lastTs - a.lastTs);
+  res.sort((a, b) => (b.lastActive || b.lastTs) - (a.lastActive || a.lastTs));
   return res;
 }
 
@@ -114,4 +130,6 @@ module.exports = {
   resetUnread,
   listPeers,
   deleteConversation,
+  setLastActive,
+  getSession,
 };
