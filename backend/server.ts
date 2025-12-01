@@ -35,6 +35,91 @@ storage.load();
 
 const onlineUsers: Map<string, Set<string>> = new Map();
 
+type AppUser = { id: string; email: string; nickname: string; nicknamePinyin: string; avatar?: string };
+const SUPABASE_URL = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
+const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+function matchInitials(pinyin: string) {
+  return pinyin.split(/\s+/).filter(Boolean).map(w => w[0]).join('');
+}
+async function searchUsersDB(q: string, page: number, pageSize: number) {
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    const MOCK_USERS: AppUser[] = [
+      { id: 'user1', email: 'test1@example.com', nickname: '测试一', nicknamePinyin: 'ceshi yi' },
+      { id: 'user2', email: 'test2@example.com', nickname: '测试二', nicknamePinyin: 'ceshi er' },
+      { id: 'user3', email: 'test3@example.com', nickname: '测试三', nicknamePinyin: 'ceshi san' },
+    ];
+    const s = (q || '').toLowerCase();
+    const matched = s
+      ? MOCK_USERS.filter(u => {
+          const initials = matchInitials(u.nicknamePinyin || '').toLowerCase();
+          return (
+            u.id.toLowerCase().includes(s) ||
+            (u.email || '').toLowerCase().includes(s) ||
+            (u.nickname || '').toLowerCase().includes(s) ||
+            (u.nicknamePinyin || '').toLowerCase().includes(s) ||
+            initials.includes(s)
+          );
+        })
+      : MOCK_USERS;
+    const total = matched.length;
+    const start = (page - 1) * pageSize;
+    const slice = matched.slice(start, start + pageSize);
+    return { users: slice, total, page, pageSize };
+  }
+  const like = `%${q}%`;
+  const params = new URLSearchParams();
+  params.set('select', 'id,email,nickname,nickname_pinyin,avatar');
+  params.set('order', 'email.asc');
+  params.set('limit', String(pageSize));
+  params.set('offset', String((page - 1) * pageSize));
+  if (q) {
+    params.set('or', `id.ilike.${like},email.ilike.${like},nickname.ilike.${like},nickname_pinyin.ilike.${like}`);
+  }
+  const url = `${SUPABASE_URL.replace(/\/$/, '')}/rest/v1/users?${params.toString()}`;
+  const resp = await fetch(url, {
+    headers: {
+      apikey: SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+      Prefer: 'count=exact',
+    },
+  });
+  if (!resp.ok) {
+    const MOCK_USERS: AppUser[] = [
+      { id: 'user1', email: 'test1@example.com', nickname: '测试一', nicknamePinyin: 'ceshi yi' },
+      { id: 'user2', email: 'test2@example.com', nickname: '测试二', nicknamePinyin: 'ceshi er' },
+      { id: 'user3', email: 'test3@example.com', nickname: '测试三', nicknamePinyin: 'ceshi san' },
+    ];
+    const s = (q || '').toLowerCase();
+    const matched = s
+      ? MOCK_USERS.filter(u => {
+          const initials = matchInitials(u.nicknamePinyin || '').toLowerCase();
+          return (
+            u.id.toLowerCase().includes(s) ||
+            (u.email || '').toLowerCase().includes(s) ||
+            (u.nickname || '').toLowerCase().includes(s) ||
+            (u.nicknamePinyin || '').toLowerCase().includes(s) ||
+            initials.includes(s)
+          );
+        })
+      : MOCK_USERS;
+    const total = matched.length;
+    const start = (page - 1) * pageSize;
+    const slice = matched.slice(start, start + pageSize);
+    return { users: slice, total, page, pageSize };
+  }
+  const totalHdr = resp.headers.get('content-range');
+  const total = totalHdr ? parseInt(totalHdr.split('/').pop() || '0', 10) : 0;
+  const rows = await resp.json();
+  const users: AppUser[] = (rows || []).map((r: any) => ({
+    id: String(r.id),
+    email: String(r.email || ''),
+    nickname: String(r.nickname || ''),
+    nicknamePinyin: String(r.nickname_pinyin || ''),
+    avatar: r.avatar || undefined,
+  }));
+  return { users, total, page, pageSize };
+}
+
 async function verifyToken(token?: string | null) {
   if (!token) return null as any;
   if (token.startsWith('mock_jwt_')) {
@@ -149,6 +234,33 @@ app.get('/api/unread', authMiddleware, (req: any, res: any) => {
   const byPeer = storage.getUnreadByPeer(req.user.id);
   const total = storage.getTotalUnread(req.user.id);
   res.json({ byPeer, total });
+});
+
+app.get('/api/users/search', authMiddleware, async (req: any, res: any) => {
+  const q = (req.query.q || '').toString().trim();
+  const page = Math.max(1, Number(req.query.page || 1));
+  const pageSize = Math.min(50, Math.max(1, Number(req.query.pageSize || 10)));
+  try {
+    const result = await searchUsersDB(q, page, pageSize);
+    // 额外首字母模糊（若后端未存 initials 字段），对当前页做细化筛选
+    const s = q.toLowerCase();
+    const refined = s
+      ? result.users.filter(u => {
+          const initials = matchInitials(u.nicknamePinyin || '').toLowerCase();
+          if (!initials) return true;
+          return (
+            u.id.toLowerCase().includes(s) ||
+            (u.email || '').toLowerCase().includes(s) ||
+            (u.nickname || '').toLowerCase().includes(s) ||
+            (u.nicknamePinyin || '').toLowerCase().includes(s) ||
+            initials.includes(s)
+          );
+        })
+      : result.users;
+    res.json({ users: refined, total: result.total, page: result.page, pageSize: result.pageSize });
+  } catch (e: any) {
+    res.json({ users: [], total: 0, page, pageSize });
+  }
 });
 
 app.get('/api/online-stats', authMiddleware, (req: any, res: any) => {

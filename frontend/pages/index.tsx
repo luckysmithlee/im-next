@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useLayoutEffect, useMemo } from 'react';
 import LoginForm from '../components/LoginForm';
 import io from 'socket.io-client';
 import type { Socket } from 'socket.io-client';
-import { Menu, X, Users, MessageCircle, Send, UserCircle } from 'lucide-react';
+import { Menu, X, Users, MessageCircle, Send, UserCircle, Search, Loader2 } from 'lucide-react';
 
 let socket: Socket | null;
 
@@ -37,6 +37,14 @@ export default function Home() {
   const activePeerRef = useRef('');
   const connErrTimerRef = useRef<any>(null);
   const connErrPersistRef = useRef({ since: 0, count: 0 });
+  const [searchText, setSearchText] = useState('');
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [searchPage, setSearchPage] = useState(1);
+  const [searchHasMore, setSearchHasMore] = useState(false);
+  const searchTimerRef = useRef<any>(null);
+  const [searchSel, setSearchSel] = useState<number>(-1);
   const onlineList = useMemo(() => stableOnline.filter(u => u !== userId), [stableOnline, userId]);
   const historyList = useMemo(() => conversations.filter((c: any) => !stableOnline.includes(c.peer)), [conversations, stableOnline]);
 
@@ -78,6 +86,17 @@ export default function Home() {
     requestAnimationFrame(() => {
       el.scrollTop = el.scrollHeight;
     });
+  }
+
+  async function searchUsers(q: string, page = 1, pageSize = 8) {
+    const base = getBackendBase();
+    const url = new URL(`${base}/api/users/search`);
+    url.searchParams.set('q', q);
+    url.searchParams.set('page', String(page));
+    url.searchParams.set('pageSize', String(pageSize));
+    const data = await fetchJSON(url.toString(), { headers: { Authorization: `Bearer ${token}` } } as RequestInit, 0, 5000);
+    if (!data) return { users: [], total: 0, page, pageSize };
+    return data;
   }
 
   useEffect(() => {
@@ -382,11 +401,10 @@ export default function Home() {
                 </button>
                 <h1 className="text-lg font-semibold ml-4">聊天应用{totalUnread > 0 ? `（未读 ${totalUnread}）` : ''}</h1>
               </div>
-              <div className="hidden sm:flex flex-1 items-center justify-center text-sm opacity-90 min-w-0 px-2 mx-2">
+              <div className="hidden lg:flex flex-1 items-center justify-center text-sm opacity-90 min-w-0 px-2 mx-2">
                 <span className="hidden xl:inline truncate max-w-lg">{userEmail} (ID: {userId})</span>
                 <span className="hidden lg:inline xl:hidden truncate max-w-md">{userEmail} (ID: {userId})</span>
-                <span className="hidden md:inline lg:hidden truncate max-w-[200px]">{userEmail}</span>
-                <span className="md:hidden truncate max-w-[150px]">ID: {userId}</span>
+                <span className="hidden md:inline xl:hidden truncate max-w-[200px]">{userEmail}</span>
               </div>
               <div className="flex-shrink-0">
                 <button
@@ -396,6 +414,91 @@ export default function Home() {
                 >
                   退出
                 </button>
+              </div>
+            </div>
+            <div className="mt-3 px-2">
+              <div className="relative max-w-xl mx-auto">
+                <div className="flex items-center bg-white/10 backdrop-blur rounded-lg px-3 py-2">
+                  <Search className="w-4 h-4 mr-2 opacity-80" />
+                  <input
+                    value={searchText}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setSearchText(v);
+                      setSearchOpen(true);
+                      setSearchSel(-1);
+                      if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+                      if (!v.trim()) { setSearchResults([]); setSearchHasMore(false); setSearchLoading(false); return; }
+                      searchTimerRef.current = setTimeout(async () => {
+                        setSearchLoading(true);
+                        const data = await searchUsers(v.trim(), 1, 8);
+                        setSearchResults(data.users || []);
+                        setSearchPage(1);
+                        setSearchHasMore(((data.total || 0) > (data.pageSize || 8)));
+                        setSearchLoading(false);
+                      }, 300);
+                    }}
+                    onFocus={() => setSearchOpen(true)}
+                    onKeyDown={async (e) => {
+                      if (!searchOpen) return;
+                      if (e.key === 'ArrowDown') {
+                        e.preventDefault();
+                        setSearchSel((prev) => Math.min((searchResults.length - 1), prev + 1));
+                        if (searchSel + 1 >= searchResults.length && searchHasMore && !searchLoading) {
+                          const nextPage = searchPage + 1;
+                          setSearchLoading(true);
+                          const data = await searchUsers(searchText.trim(), nextPage, 8);
+                          setSearchResults((r) => [...r, ...(data.users || [])]);
+                          setSearchPage(nextPage);
+                          setSearchHasMore(((data.page || nextPage) * (data.pageSize || 8)) < (data.total || 0));
+                          setSearchLoading(false);
+                        }
+                      } else if (e.key === 'ArrowUp') {
+                        e.preventDefault();
+                        setSearchSel((prev) => Math.max(-1, prev - 1));
+                      } else if (e.key === 'Enter') {
+                        e.preventDefault();
+                        const idx = searchSel >= 0 ? searchSel : 0;
+                        const item = searchResults[idx];
+                        if (item && item.id) {
+                          setTo(item.id);
+                          setSearchOpen(false);
+                        }
+                      } else if (e.key === 'Escape') {
+                        setSearchOpen(false);
+                      }
+                    }}
+                    placeholder="搜索用户..."
+                    className="flex-1 bg-transparent border-0 text-sm text-white placeholder-white/70 focus:outline-none"
+                  />
+                  {searchLoading && <Loader2 className="w-4 h-4 ml-2 animate-spin" />}
+                </div>
+                {searchOpen && (
+                  <div className="absolute left-0 right-0 mt-2 bg-elevated border border-border rounded-lg shadow-lg max-h-64 overflow-auto z-20">
+                    {searchResults.length === 0 && !searchLoading ? (
+                      <div className="px-4 py-3 text-sm text-text-muted">无匹配用户</div>
+                    ) : (
+                      searchResults.map((u, i) => (
+                        <button
+                          key={`${u.id}_${i}`}
+                          onClick={() => { setTo(u.id); setSearchOpen(false); }}
+                          className={`w-full px-3 py-2 text-left flex items-center ${i === searchSel ? 'bg-surface-100 dark:bg-surface-800' : ''}`}
+                        >
+                          <div className="w-7 h-7 rounded-full bg-primary-500 text-white flex items-center justify-center mr-3 text-xs">
+                            {(u.nickname || u.email || u.id).slice(0,1).toUpperCase()}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="text-sm truncate">{u.nickname || u.email || u.id}</div>
+                            <div className="text-xs text-text-muted truncate">{u.email} · {u.id}</div>
+                          </div>
+                        </button>
+                      ))
+                    )}
+                    {searchLoading && (
+                      <div className="px-4 py-2 text-sm text-text-muted flex items-center"><Loader2 className="w-4 h-4 mr-2 animate-spin" />加载中...</div>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           </header>
