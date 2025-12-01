@@ -1,53 +1,45 @@
 import { useState, useEffect } from 'react';
 import { MessageCircle, Eye, EyeOff, Loader2 } from 'lucide-react';
 
-// 模拟用户数据
 const MOCK_USERS = [
   { email: 'test1@example.com', password: '123456', id: 'user1' },
   { email: 'test2@example.com', password: '123456', id: 'user2' },
   { email: 'test3@example.com', password: '123456', id: 'user3' }
 ];
 
-export default function LoginForm({ onLogin }) {
+type Props = {
+  onLogin: (token: string, userId: string, email: string, rememberMe?: boolean) => void;
+};
+
+export default function LoginForm({ onLogin }: Props) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [err, setErr] = useState(null);
+  const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
 
-  // 加载保存的自动登录偏好
   useEffect(() => {
     const savedRememberMe = localStorage.getItem('chat_remember_me') === 'true';
     const savedEmail = localStorage.getItem('chat_saved_email');
-    
     if (savedRememberMe && savedEmail) {
       setRememberMe(true);
       setEmail(savedEmail);
     }
   }, []);
 
-  async function submit(e) {
+  async function submit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setLoading(true);
     setErr(null);
-
     try {
-      // 模拟认证延迟
       await new Promise(resolve => setTimeout(resolve, 600));
-      
-      // 查找匹配的用户
       const user = MOCK_USERS.find(u => u.email === email.trim() && u.password === password.trim());
-      
       if (!user) {
         setErr('邮箱或密码不正确');
         return;
       }
-      
-      // 生成模拟token
       const mockToken = `mock_jwt_${user.id}_${Date.now()}`;
-      
-      // 保存自动登录偏好
       if (rememberMe) {
         localStorage.setItem('chat_remember_me', 'true');
         localStorage.setItem('chat_saved_email', email);
@@ -55,9 +47,7 @@ export default function LoginForm({ onLogin }) {
         localStorage.removeItem('chat_remember_me');
         localStorage.removeItem('chat_saved_email');
       }
-      
       onLogin(mockToken, user.id, user.email, rememberMe);
-      
     } catch (error) {
       setErr('登录失败，请重试');
     } finally {
@@ -68,7 +58,6 @@ export default function LoginForm({ onLogin }) {
   return (
     <div className="min-h-screen grid place-items-center bg-gradient-to-b from-surface to-white dark:from-surface-900 dark:to-black px-4 sm:px-6">
       <div className="w-full max-w-sm bg-elevated border border-border rounded-xl shadow-lg p-8">
-        {/* Header */}
         <div className="text-center mb-8">
           <div className="w-12 h-12 bg-primary-500 rounded-xl grid place-items-center mx-auto mb-4">
             <MessageCircle className="w-6 h-6 text-white" />
@@ -76,8 +65,6 @@ export default function LoginForm({ onLogin }) {
           <h1 className="text-2xl font-bold text-text mb-2">欢迎回来</h1>
           <p className="text-text-muted text-sm">登录以继续聊天</p>
         </div>
-
-        {/* Form */}
         <form onSubmit={submit} className="space-y-4" noValidate>
           <div>
             <label htmlFor="email" className="block text-sm font-medium text-text mb-2">
@@ -95,7 +82,6 @@ export default function LoginForm({ onLogin }) {
                 className="w-full px-4 py-3 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-primary-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               />
           </div>
-
           <div>
             <label htmlFor="password" className="block text-sm font-medium text-text mb-2">
               密码
@@ -126,14 +112,11 @@ export default function LoginForm({ onLogin }) {
               </button>
             </div>
           </div>
-
           {err && (
             <div className="bg-error/10 border border-error/20 text-error text-sm rounded-lg p-3" role="alert">
               {err}
             </div>
           )}
-
-          {/* Remember Me */}
           <div className="flex items-center">
             <input
               id="remember-me"
@@ -146,7 +129,6 @@ export default function LoginForm({ onLogin }) {
               自动登录
             </label>
           </div>
-
           <button 
             type="submit"
             disabled={loading || !email.trim() || !password.trim()}
@@ -162,8 +144,6 @@ export default function LoginForm({ onLogin }) {
             )}
           </button>
         </form>
-
-        {/* Footer */}
         <div className="mt-6 text-center">
           <p className="text-xs text-text-muted">
             测试账户：test1@example.com / 123456

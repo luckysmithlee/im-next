@@ -1,24 +1,32 @@
-const fs = require('fs');
-const path = require('path');
+import fs from 'fs';
+import path from 'path';
 
 const DATA_DIR = path.join(__dirname, 'data');
 const MSG_FILE = path.join(DATA_DIR, 'messages.json');
 
-let db = { conversations: {}, unread: {}, session: {} };
+type Message = { from: string; to: string; content: string; timestamp: number; clientId?: string };
+type SessionInfo = { lastActive?: number; lastRead?: number };
+type DB = {
+  conversations: Record<string, Message[]>;
+  unread: Record<string, Record<string, number>>;
+  session: Record<string, Record<string, SessionInfo>>;
+};
+
+let db: DB = { conversations: {}, unread: {}, session: {} };
 
 function ensureFile() {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
   if (!fs.existsSync(MSG_FILE)) fs.writeFileSync(MSG_FILE, JSON.stringify({ conversations: {} }, null, 2));
 }
 
-function load() {
+export function load() {
   ensureFile();
   try {
     const text = fs.readFileSync(MSG_FILE, 'utf8');
-    db = JSON.parse(text || '{"conversations":{}, "unread":{}, "session":{}}');
-    if (!db.conversations) db.conversations = {};
-    if (!db.unread) db.unread = {};
-    if (!db.session) db.session = {};
+    const parsed = JSON.parse(text || '{"conversations":{}, "unread":{}, "session":{}}');
+    db.conversations = parsed.conversations || {};
+    db.unread = parsed.unread || {};
+    db.session = parsed.session || {};
   } catch {
     db = { conversations: {}, unread: {}, session: {} };
   }
@@ -27,23 +35,21 @@ function load() {
 function save() {
   try {
     fs.writeFileSync(MSG_FILE, JSON.stringify(db, null, 2));
-  } catch (e) {
+  } catch (e: any) {
     console.error('保存消息失败:', e.message || e);
   }
 }
 
-function keyFor(a, b) {
+function keyFor(a: string, b: string) {
   return a < b ? `${a}|${b}` : `${b}|${a}`;
 }
 
-function appendMessage(from, to, content, timestamp, extra) {
+export function appendMessage(from: string, to: string, content: string, timestamp?: number, extra?: Partial<Message>) {
   const key = keyFor(from, to);
   if (!db.conversations[key]) db.conversations[key] = [];
-  const msg = { from, to, content, timestamp: timestamp || Date.now(), ...(extra || {}) };
+  const msg: Message = { from, to, content, timestamp: timestamp || Date.now(), ...(extra || {}) };
   db.conversations[key].push(msg);
-  // 保持按时间排序
   db.conversations[key].sort((x, y) => x.timestamp - y.timestamp);
-  // 简单限流：每个会话最多保留最近5000条
   if (db.conversations[key].length > 5000) {
     db.conversations[key] = db.conversations[key].slice(-5000);
   }
@@ -53,7 +59,7 @@ function appendMessage(from, to, content, timestamp, extra) {
   return msg;
 }
 
-function getMessages(userA, userB, beforeTs, limit = 20) {
+export function getMessages(userA: string, userB: string, beforeTs?: number, limit = 20) {
   const key = keyFor(userA, userB);
   const list = db.conversations[key] || [];
   if (!beforeTs) {
@@ -61,22 +67,22 @@ function getMessages(userA, userB, beforeTs, limit = 20) {
     return { messages: slice, nextCursor: slice.length ? slice[0].timestamp : null };
   }
   const idx = list.findIndex(m => m.timestamp >= beforeTs);
-  const end = idx === -1 ? list.length : idx; // 取 strictly older (< beforeTs)
+  const end = idx === -1 ? list.length : idx;
   const start = Math.max(0, end - limit);
   const slice = list.slice(start, end);
   return { messages: slice, nextCursor: slice.length ? slice[0].timestamp : null };
 }
 
-function getUnreadByPeer(userId) {
-  return { ...(db.unread[userId] || {}) };
+export function getUnreadByPeer(userId: string) {
+  return { ...(db.unread[userId] || {}) } as Record<string, number>;
 }
 
-function getTotalUnread(userId) {
+export function getTotalUnread(userId: string) {
   const map = db.unread[userId] || {};
   return Object.values(map).reduce((sum, n) => sum + (Number(n) || 0), 0);
 }
 
-function resetUnread(userId, peerId) {
+export function resetUnread(userId: string, peerId: string) {
   if (!db.unread[userId]) db.unread[userId] = {};
   db.unread[userId][peerId] = 0;
   if (!db.session[userId]) db.session[userId] = {};
@@ -86,19 +92,19 @@ function resetUnread(userId, peerId) {
   return { byPeer: getUnreadByPeer(userId), total: getTotalUnread(userId) };
 }
 
-function setLastActive(userId, peerId) {
+export function setLastActive(userId: string, peerId: string) {
   if (!db.session[userId]) db.session[userId] = {};
   if (!db.session[userId][peerId]) db.session[userId][peerId] = {};
   db.session[userId][peerId].lastActive = Date.now();
   save();
 }
 
-function getSession(userId) {
-  return { ...(db.session[userId] || {}) };
+export function getSession(userId: string) {
+  return { ...(db.session[userId] || {}) } as Record<string, SessionInfo>;
 }
 
-function listPeers(userId) {
-  const res = [];
+export function listPeers(userId: string) {
+  const res: Array<{ peer: string; lastTs: number; unread: number; lastActive: number; lastRead: number }> = [];
   for (const key of Object.keys(db.conversations)) {
     const parts = key.split('|');
     if (!parts.includes(userId)) continue;
@@ -113,23 +119,10 @@ function listPeers(userId) {
   return res;
 }
 
-function deleteConversation(userA, userB) {
+export function deleteConversation(userA: string, userB: string) {
   const key = keyFor(userA, userB);
   db.conversations[key] = [];
   if (db.unread[userA]) delete db.unread[userA][userB];
   save();
   return true;
 }
-
-module.exports = {
-  load,
-  appendMessage,
-  getMessages,
-  getUnreadByPeer,
-  getTotalUnread,
-  resetUnread,
-  listPeers,
-  deleteConversation,
-  setLastActive,
-  getSession,
-};

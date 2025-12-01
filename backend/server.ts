@@ -1,19 +1,17 @@
-const express = require('express');
-const http = require('http');
-const { Server } = require('socket.io');
-const fetch = require('node-fetch');
-const cors = require('cors');
+import express from 'express';
+import http from 'http';
+import { Server } from 'socket.io';
+import fetch from 'node-fetch';
+import cors from 'cors';
+import * as storage from './storage';
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 const server = http.createServer(app);
 const io = new Server(server, {
-  cors: {
-    origin: "*",
-    methods: ["GET", "POST"],
-  },
-  transports: ["websocket", "polling"],
+  cors: { origin: '*', methods: ['GET', 'POST'] },
+  transports: ['websocket', 'polling'],
   pingTimeout: 20000,
   pingInterval: 25000,
 });
@@ -33,45 +31,36 @@ setInterval(() => {
 }, _lagInterval);
 
 const GOTRUE_URL = process.env.GOTRUE_URL || 'http://localhost:9999/auth/v1';
-const storage = require('./storage');
 storage.load();
 
-// 在线用户映射: userId -> Set<socketId>
-const onlineUsers = new Map();
+const onlineUsers: Map<string, Set<string>> = new Map();
 
-async function verifyToken(token) {
-  if (!token) return null;
-  
-  // 支持模拟token（用于开发环境）
+async function verifyToken(token?: string | null) {
+  if (!token) return null as any;
   if (token.startsWith('mock_jwt_')) {
-    // 从mock token中提取用户ID
     const parts = token.split('_');
     if (parts.length >= 3) {
       const userId = parts[2];
-      const mockUsers = {
-        'user1': { id: 'user1', email: 'test1@example.com' },
-        'user2': { id: 'user2', email: 'test2@example.com' },
-        'user3': { id: 'user3', email: 'test3@example.com' }
+      const mockUsers: Record<string, { id: string; email: string }> = {
+        user1: { id: 'user1', email: 'test1@example.com' },
+        user2: { id: 'user2', email: 'test2@example.com' },
+        user3: { id: 'user3', email: 'test3@example.com' },
       };
       return mockUsers[userId] || null;
     }
   }
-  
-  // 原有的Supabase验证逻辑
   try {
-    const resp = await fetch(`${GOTRUE_URL}/user`, {
-      headers: { Authorization: `Bearer ${token}` }
-    });
+    const resp = await fetch(`${GOTRUE_URL}/user`, { headers: { Authorization: `Bearer ${token}` } });
     if (!resp.ok) return null;
     const data = await resp.json();
     return data;
-  } catch (e) {
+  } catch (e: any) {
     console.error('Token验证错误：', e.message || e);
     return null;
   }
 }
 
-function authMiddleware(req, res, next) {
+function authMiddleware(req: any, res: any, next: any) {
   const auth = req.headers.authorization || '';
   const token = auth.startsWith('Bearer ') ? auth.slice(7) : null;
   verifyToken(token).then(user => {
@@ -85,43 +74,30 @@ io.use(async (socket, next) => {
   const token = socket.handshake.auth && socket.handshake.auth.token;
   const user = await verifyToken(token);
   if (!user) return next(new Error('认证失败：无效的令牌'));
-  
-  console.log('用户认证成功：', user.email);
-  socket.user = user;
+  (socket as any).user = user as any;
   next();
 });
 
 io.on('connection', (socket) => {
-  const user = socket.user;
-  console.log('用户已连接：', user.email, 'ID:', user.id);
+  const user = (socket as any).user;
   if (!onlineUsers.has(user.id)) onlineUsers.set(user.id, new Set());
-  onlineUsers.get(user.id).add(socket.id);
+  onlineUsers.get(user.id)!.add(socket.id);
   socket.join(user.id);
 
-  // 推送在线用户列表
   function broadcastOnline() {
     const list = Array.from(onlineUsers.keys());
     io.emit('online_users', list);
   }
   broadcastOnline();
-
   try {
     const byPeer = storage.getUnreadByPeer(user.id);
     const total = storage.getTotalUnread(user.id);
     io.to(socket.id).emit('unread_counts', { byPeer, total });
-  } catch (e) {
-    console.error('发送初始未读计数失败', e.message || e);
+  } catch (e: any) {
   }
-
-  socket.on('private_message', (payload, ack) => {
+  socket.on('private_message', (payload: any, ack?: Function) => {
     const toSockets = onlineUsers.get(payload.to);
-    const msg = {
-      from: user.id,
-      to: payload.to,
-      content: payload.content,
-      timestamp: Date.now(),
-      clientId: payload.clientId || undefined
-    };
+    const msg = { from: user.id, to: payload.to, content: payload.content, timestamp: Date.now(), clientId: payload.clientId || undefined };
     metrics.messagesSent += 1;
     storage.appendMessage(user.id, payload.to, payload.content, msg.timestamp, { clientId: msg.clientId });
     if (toSockets && toSockets.size > 0) {
@@ -136,16 +112,13 @@ io.on('connection', (socket) => {
       try { ack({ ok: true }); } catch {}
     }
   });
-
-  socket.on('mark_read', (payload) => {
+  socket.on('mark_read', (payload: any) => {
     const peer = payload && payload.peer;
     if (!peer) return;
     const result = storage.resetUnread(user.id, peer);
     io.to(socket.id).emit('unread_counts', result);
   });
-
   socket.on('disconnect', () => {
-    console.log('disconnect', user.id);
     const set = onlineUsers.get(user.id);
     if (set) {
       set.delete(socket.id);
@@ -156,7 +129,7 @@ io.on('connection', (socket) => {
   });
 });
 
-app.get('/api/me', authMiddleware, (req, res) => {
+app.get('/api/me', authMiddleware, (req: any, res: any) => {
   res.json({ id: req.user.id, email: req.user.email });
 });
 
@@ -164,9 +137,7 @@ app.get('/health', (req, res) => {
   res.status(200).json({ status: 'ok' });
 });
 
-// 按需分页获取历史消息
-// GET /api/messages/:peer?before=<timestamp>&limit=<n>
-app.get('/api/messages/:peer', authMiddleware, (req, res) => {
+app.get('/api/messages/:peer', authMiddleware, (req: any, res: any) => {
   const peer = req.params.peer;
   const before = req.query.before ? Number(req.query.before) : undefined;
   const limit = req.query.limit ? Math.min(Number(req.query.limit), 100) : 20;
@@ -174,14 +145,13 @@ app.get('/api/messages/:peer', authMiddleware, (req, res) => {
   res.json({ messages, nextCursor });
 });
 
-// 获取当前用户未读计数
-app.get('/api/unread', authMiddleware, (req, res) => {
+app.get('/api/unread', authMiddleware, (req: any, res: any) => {
   const byPeer = storage.getUnreadByPeer(req.user.id);
   const total = storage.getTotalUnread(req.user.id);
   res.json({ byPeer, total });
 });
 
-app.get('/api/online-stats', authMiddleware, (req, res) => {
+app.get('/api/online-stats', authMiddleware, (req: any, res: any) => {
   const totalSockets = io.sockets.sockets.size;
   const engineClients = io.engine.clientsCount;
   const users = Array.from(onlineUsers.entries()).map(([userId, set]) => ({ userId, sockets: Array.from(set) }));
@@ -189,41 +159,31 @@ app.get('/api/online-stats', authMiddleware, (req, res) => {
 });
 
 app.get('/api/metrics', authMiddleware, (req, res) => {
-  res.json({
-    messagesSent: metrics.messagesSent,
-    messagesDelivered: metrics.messagesDelivered,
-    disconnects: metrics.disconnects,
-    eventLoopLagAvgMs: lagCount ? +(lagSum / lagCount).toFixed(2) : 0,
-    eventLoopLagMaxMs: +lagMax.toFixed(2),
-  });
+  res.json({ messagesSent: metrics.messagesSent, messagesDelivered: metrics.messagesDelivered, disconnects: metrics.disconnects, eventLoopLagAvgMs: lagCount ? +(lagSum / lagCount).toFixed(2) : 0, eventLoopLagMaxMs: +lagMax.toFixed(2) });
 });
 
-app.get('/api/conversations', authMiddleware, (req, res) => {
+app.get('/api/conversations', authMiddleware, (req: any, res: any) => {
   const list = storage.listPeers(req.user.id);
   res.json({ conversations: list });
 });
 
-// 标记与某个对端会话为已读
-app.post('/api/read/:peer', authMiddleware, (req, res) => {
+app.post('/api/read/:peer', authMiddleware, (req: any, res: any) => {
   const peer = req.params.peer;
   const result = storage.resetUnread(req.user.id, peer);
-  const selfSocketId = onlineUsers.get(req.user.id);
-  if (selfSocketId) io.to(selfSocketId).emit('unread_counts', result);
+  io.to(req.user.id).emit('unread_counts', result);
   res.json({ ok: true, ...result });
 });
 
-app.delete('/api/conversations/:peer', authMiddleware, (req, res) => {
+app.delete('/api/conversations/:peer', authMiddleware, (req: any, res: any) => {
   const peer = req.params.peer;
   storage.deleteConversation(req.user.id, peer);
-  const selfSocketId = onlineUsers.get(req.user.id);
   const byPeer = storage.getUnreadByPeer(req.user.id);
   const total = storage.getTotalUnread(req.user.id);
-  if (selfSocketId) io.to(selfSocketId).emit('unread_counts', { byPeer, total });
+  io.to(req.user.id).emit('unread_counts', { byPeer, total });
   res.json({ ok: true });
 });
 
-// 可选：通过HTTP写入一条消息（用于测试/回放）
-app.post('/api/messages/:peer', authMiddleware, (req, res) => {
+app.post('/api/messages/:peer', authMiddleware, (req: any, res: any) => {
   const peer = req.params.peer;
   const { content, timestamp } = req.body || {};
   if (!content || typeof content !== 'string') return res.status(400).json({ error: 'content required' });
@@ -233,7 +193,8 @@ app.post('/api/messages/:peer', authMiddleware, (req, res) => {
 
 const PORT = process.env.PORT || 4000;
 server.listen(PORT, () => console.log(`Server listening on ${PORT}`));
-app.post('/api/session/active/:peer', authMiddleware, (req, res) => {
+
+app.post('/api/session/active/:peer', authMiddleware, (req: any, res: any) => {
   const peer = req.params.peer;
   storage.setLastActive(req.user.id, peer);
   res.json({ ok: true });

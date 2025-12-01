@@ -635,8 +635,31 @@
       "user2": 0
     },
     "user2": {
-      "user1": 25,
+      "user1": 0,
       "user3": 56
+    }
+  },
+  "session": {
+    "user1": {
+      "user3": {
+        "lastRead": 1764510789346
+      },
+      "user2": {
+        "lastRead": 1764510785076
+      }
+    },
+    "user3": {
+      "user2": {
+        "lastRead": 1764509588748
+      },
+      "user1": {
+        "lastRead": 1764509587847
+      }
+    },
+    "user2": {
+      "user1": {
+        "lastRead": 1764585366409
+      }
     }
   }
 }
