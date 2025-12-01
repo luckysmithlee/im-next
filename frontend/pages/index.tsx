@@ -84,6 +84,9 @@ export default function Home() {
     const host = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
     return `http://${host}:4000`;
   }
+  function getBffBase() {
+    return '/api/bff';
+  }
 
   function scrollToBottom() {
     const el = chatBodyRef.current;
@@ -253,7 +256,7 @@ export default function Home() {
   }
 
   async function fetchConversations(tok?: string) {
-    const base = getBackendBase();
+    const base = getBffBase();
     const data = await fetchJSON(`${base}/api/conversations`, { headers: { Authorization: `Bearer ${tok || token}` } } as RequestInit);
     if (!data) return;
     setConversations((data as any).conversations || []);
@@ -271,7 +274,7 @@ export default function Home() {
       });
       return next;
     });
-    const base = getBackendBase();
+    const base = getBffBase();
     const data = await fetchJSON(`${base}/api/conversations/${peer}/pin`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ pinned }) } as RequestInit);
     if (!data) return;
     setConversations((data as any).conversations || []);
@@ -279,7 +282,7 @@ export default function Home() {
 
   async function doDelete(peer: string) {
     if (!token) return;
-    const base = getBackendBase();
+    const base = getBffBase();
     await fetch(`${base}/api/conversations/${peer}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } } as RequestInit);
     setMessages(prev => { const next: Record<string, any[]> = { ...prev }; delete next[peer]; return next; });
     setConversations(prev => prev.filter((c: any) => c.peer !== peer));
@@ -288,7 +291,7 @@ export default function Home() {
   }
 
   async function checkHealth(retry = 5) {
-    const base = getBackendBase();
+    const base = getBffBase();
     const ok = await fetchJSON(`${base}/health`, {}, 0, 3000);
     if (ok && (ok as any).status === 'ok') {
       setBackendReady(true);
@@ -345,7 +348,7 @@ export default function Home() {
 
   async function fetchHistory(peer: string, before?: number) {
     if (!token) return;
-    const base = getBackendBase();
+    const base = getBffBase();
     const url = new URL(`${base}/api/messages/${peer}`);
     if (before) url.searchParams.set('before', String(before));
     url.searchParams.set('limit', '20');
@@ -377,7 +380,7 @@ export default function Home() {
       if (socket) {
         (socket as Socket).emit('mark_read', { peer: to });
       }
-      const base = getBackendBase();
+      const base = getBffBase();
       fetchJSON(`${base}/api/read/${to}`, { method: 'POST', headers: { Authorization: `Bearer ${token}` } } as RequestInit)
         .then((data: any) => {
           if (data && data.byPeer) {
@@ -414,7 +417,7 @@ export default function Home() {
 
   useEffect(() => {
     if (!token || !backendReady) return;
-    const base = getBackendBase();
+    const base = getBffBase();
     fetchJSON(`${base}/api/unread`, { headers: { Authorization: `Bearer ${token}` } } as RequestInit)
       .then((data: any) => {
         if (!data) return;
