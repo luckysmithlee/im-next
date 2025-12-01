@@ -2,14 +2,15 @@ import { useState, useRef, useEffect, useLayoutEffect, useMemo } from 'react';
 import LoginForm from '../components/LoginForm';
 import io from 'socket.io-client';
 import type { Socket } from 'socket.io-client';
-import { Menu, X, Users, MessageCircle, Send, UserCircle } from 'lucide-react';
+import { Menu, X, Users, MessageCircle, Send, UserCircle, Pin } from 'lucide-react';
 import SearchBox from '../components/SearchBox';
+import UnifiedSidebar from '../components/UnifiedSidebar';
 
 let socket: Socket | null;
 
 export default function Home() {
   const [token, setToken] = useState<string | null>(null);
-  const [online, setOnline] = useState<string[]>([]);
+  
   const [userId, setUserId] = useState<string | null>(null);
   const [userEmail, setUserEmail] = useState('');
   const [messages, setMessages] = useState<Record<string, any[]>>({});
@@ -34,12 +35,23 @@ export default function Home() {
   const [collapseOnline, setCollapseOnline] = useState(false);
   const [stableOnline, setStableOnline] = useState<string[]>([]);
   const onlineUpdateTimerRef = useRef<any>(null);
+  const onlineList = useMemo(() => stableOnline.filter(u => u !== userId), [stableOnline, userId]);
+  const historyList = useMemo(() => conversations, [conversations]);
+  const sidebarRef = useRef<HTMLDivElement | null>(null);
+  const [sidebarHeight, setSidebarHeight] = useState(0);
+  const [sidebarScrollTop, setSidebarScrollTop] = useState(0);
+  const ROW_HEIGHT = 60;
+  const [confirmDeletePeer, setConfirmDeletePeer] = useState<string | null>(null);
+  const [skipDeleteConfirm, setSkipDeleteConfirm] = useState(false);
   const unreadUpdateTimerRef = useRef<any>(null);
   const activePeerRef = useRef('');
   const connErrTimerRef = useRef<any>(null);
   const connErrPersistRef = useRef({ since: 0, count: 0 });
-  const onlineList = useMemo(() => stableOnline.filter(u => u !== userId), [stableOnline, userId]);
-  const historyList = useMemo(() => conversations.filter((c: any) => !stableOnline.includes(c.peer)), [conversations, stableOnline]);
+  const convTotal = conversations.length;
+  const visibleCount = sidebarHeight ? Math.ceil(sidebarHeight / ROW_HEIGHT) + 6 : 20;
+  const startIndex = Math.max(0, Math.floor(sidebarScrollTop / ROW_HEIGHT) - 3);
+  const endIndex = Math.min(convTotal, startIndex + visibleCount);
+  const convSlice = useMemo(() => conversations.slice(startIndex, endIndex), [conversations, startIndex, endIndex]);
 
   async function fetchJSON(url: string, options: RequestInit = {}, retry = 2, timeout = 6000) {
     const controller = new AbortController();
@@ -192,7 +204,6 @@ export default function Home() {
         }
       }, 2000);
     });
-    socket.on('online_users', (list: string[]) => setOnline(list));
     socket.on('private_message', (msg: any) => {
       setMessages(prev => {
         const fromUser = msg.from === uid ? msg.to : msg.from;
@@ -214,6 +225,20 @@ export default function Home() {
         }));
         setTotalUnread(prev => prev + 1);
       }
+      setConversations(prev => {
+        const peer = msg.from === uid ? msg.to : msg.from;
+        const next = [...prev];
+        const idx = next.findIndex((c: any) => c.peer === peer);
+        if (idx >= 0) next[idx] = { ...next[idx], lastTs: msg.timestamp };
+        else next.push({ peer, lastTs: msg.timestamp, unread: 0, lastActive: 0, lastRead: 0, pinned: false, pinnedAt: 0 });
+        next.sort((a: any, b: any) => {
+          if (a.pinned && b.pinned) return (b.pinnedAt || 0) - (a.pinnedAt || 0);
+          if (a.pinned && !b.pinned) return -1;
+          if (!a.pinned && b.pinned) return 1;
+          return (b.lastActive || b.lastTs || 0) - (a.lastActive || a.lastTs || 0);
+        });
+        return next;
+      });
     });
     socket.on('unread_counts', (payload: any) => {
       const byPeer = (payload && payload.byPeer) || {};
@@ -233,6 +258,34 @@ export default function Home() {
     const data = await fetchJSON(`${base}/api/conversations`, { headers: { Authorization: `Bearer ${tok || token}` } } as RequestInit);
     if (!data) return;
     setConversations((data as any).conversations || []);
+  }
+
+  async function togglePin(peer: string, pinned: boolean) {
+    if (!token) return;
+    setConversations(prev => {
+      const next = prev.map((c: any) => c.peer === peer ? { ...c, pinned: pinned, pinnedAt: pinned ? Date.now() : 0 } : c);
+      next.sort((a: any, b: any) => {
+        if (a.pinned && b.pinned) return (b.pinnedAt || 0) - (a.pinnedAt || 0);
+        if (a.pinned && !b.pinned) return -1;
+        if (!a.pinned && b.pinned) return 1;
+        return (b.lastActive || b.lastTs || 0) - (a.lastActive || a.lastTs || 0);
+      });
+      return next;
+    });
+    const base = getBackendBase();
+    const data = await fetchJSON(`${base}/api/conversations/${peer}/pin`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ pinned }) } as RequestInit);
+    if (!data) return;
+    setConversations((data as any).conversations || []);
+  }
+
+  async function doDelete(peer: string) {
+    if (!token) return;
+    const base = getBackendBase();
+    await fetch(`${base}/api/conversations/${peer}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } } as RequestInit);
+    setMessages(prev => { const next: Record<string, any[]> = { ...prev }; delete next[peer]; return next; });
+    setConversations(prev => prev.filter((c: any) => c.peer !== peer));
+    if (to === peer) setTo('');
+    setConfirmDeletePeer(null);
   }
 
   async function checkHealth(retry = 5) {
@@ -276,6 +329,19 @@ export default function Home() {
     (socket as Socket).emit('private_message', { to, content: text, clientId });
     setText('');
     lastActionRef.current = 'send';
+    setConversations(prev => {
+      const next = [...prev];
+      const idx = next.findIndex((c: any) => c.peer === to);
+      if (idx >= 0) next[idx] = { ...next[idx], lastTs: msg.timestamp };
+      else next.push({ peer: to, lastTs: msg.timestamp, unread: 0, lastActive: 0, lastRead: 0, pinned: false, pinnedAt: 0 });
+      next.sort((a: any, b: any) => {
+        if (a.pinned && b.pinned) return (b.pinnedAt || 0) - (a.pinnedAt || 0);
+        if (a.pinned && !b.pinned) return -1;
+        if (!a.pinned && b.pinned) return 1;
+        return (b.lastActive || b.lastTs || 0) - (a.lastActive || a.lastTs || 0);
+      });
+      return next;
+    });
   }
 
   async function fetchHistory(peer: string, before?: number) {
@@ -324,14 +390,16 @@ export default function Home() {
   }, [to, token, backendReady]);
 
   useEffect(() => {
-    if (onlineUpdateTimerRef.current) clearTimeout(onlineUpdateTimerRef.current);
-    onlineUpdateTimerRef.current = setTimeout(() => {
-      setStableOnline(online || []);
-    }, 350);
-    return () => {
-      if (onlineUpdateTimerRef.current) clearTimeout(onlineUpdateTimerRef.current);
-    };
-  }, [online]);
+    setSkipDeleteConfirm(localStorage.getItem('skip_delete_confirm') === 'true');
+  }, []);
+  useEffect(() => {
+    function updateSize() {
+      if (sidebarRef.current) setSidebarHeight(sidebarRef.current.clientHeight);
+    }
+    updateSize();
+    window.addEventListener('resize', updateSize);
+    return () => { window.removeEventListener('resize', updateSize); };
+  }, []);
 
   useLayoutEffect(() => {
     const list = messages[to] || [];
@@ -404,18 +472,13 @@ export default function Home() {
             </div>
           </header>
           <div className="flex-1 flex overflow-hidden">
-            <aside className={`${showSidebar ? 'flex' : 'hidden lg:flex'} w-64 bg-elevated border-r border-border flex-col absolute lg:relative inset-y-0 left-0 z-10 lg:z-auto h-full`}>
+            <UnifiedSidebar conversations={conversations} unreadByPeer={unreadByPeer} to={to} onSelectPeer={(peer) => { setTo(peer); if (typeof window !== 'undefined' && window.innerWidth < 1024) setShowSidebar(false); setTimeout(() => { if (messageInputRef.current) messageInputRef.current.focus(); }, 100); }} showSidebar={showSidebar} setShowSidebar={setShowSidebar} totalUnread={totalUnread} onPin={togglePin} onDelete={(peer) => { if (skipDeleteConfirm) { doDelete(peer); } else { setConfirmDeletePeer(peer); } }} />
+            <aside className="hidden">
               <div className="px-4 sm:px-6 py-4 border-b border-border flex-shrink-0 h-[76px] flex flex-col justify-center">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center min-w-0 flex-1">
-                    <div className="mr-3 flex-shrink-0">
-                      <Users className="w-5 h-5 text-primary-500" />
-                    </div>
                     <div className="min-w-0 flex-1">
-                      <h2 className="text-lg font-semibold text-text truncate">在线用户{totalUnread > 0 ? ` · 未读 ${totalUnread}` : ''}</h2>
-                      <div className="flex items-center text-xs text-text-muted">
-                        <span className="font-medium">{onlineList.length} 位</span>
-                      </div>
+                      <h2 className="text-lg font-semibold text-text truncate">会话列表{totalUnread > 0 ? ` · 未读 ${totalUnread}` : ''}</h2>
                     </div>
                   </div>
                   <button
@@ -545,7 +608,7 @@ export default function Home() {
                       </div>
                       <div className="min-w-0 flex-1">
                         <h2 className="text-lg font-semibold text-text truncate"> {to}</h2>
-                        <div className="text-xs text-success">在线</div>
+                        
                       </div>
                     </div>
                   </div>
@@ -687,6 +750,21 @@ export default function Home() {
                 </form>
               </div>
             </main>
+            {confirmDeletePeer && (
+              <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+                <div className="bg-elevated border border-border rounded-lg p-4 w-80">
+                  <div className="text-sm mb-3">确认删除会话 {confirmDeletePeer}？</div>
+                  <label className="flex items-center text-xs mb-3">
+                    <input type="checkbox" checked={skipDeleteConfirm} onChange={(e) => { setSkipDeleteConfirm(e.target.checked); localStorage.setItem('skip_delete_confirm', e.target.checked ? 'true' : 'false'); }} className="mr-2" />
+                    不再提示
+                  </label>
+                  <div className="flex justify-end space-x-2">
+                    <button onClick={() => setConfirmDeletePeer(null)} className="px-3 py-1 text-xs rounded-md border">取消</button>
+                    <button onClick={() => doDelete(confirmDeletePeer)} className="px-3 py-1 text-xs rounded-md bg-red-500 text-white">删除</button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

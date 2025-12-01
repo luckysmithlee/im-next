@@ -5,7 +5,7 @@ const DATA_DIR = path.join(__dirname, 'data');
 const MSG_FILE = path.join(DATA_DIR, 'messages.json');
 
 type Message = { from: string; to: string; content: string; timestamp: number; clientId?: string };
-type SessionInfo = { lastActive?: number; lastRead?: number };
+type SessionInfo = { lastActive?: number; lastRead?: number; pinned?: boolean; pinnedAt?: number };
 type DB = {
   conversations: Record<string, Message[]>;
   unread: Record<string, Record<string, number>>;
@@ -103,8 +103,17 @@ export function getSession(userId: string) {
   return { ...(db.session[userId] || {}) } as Record<string, SessionInfo>;
 }
 
+export function setPinned(userId: string, peerId: string, pinned: boolean) {
+  if (!db.session[userId]) db.session[userId] = {};
+  if (!db.session[userId][peerId]) db.session[userId][peerId] = {};
+  db.session[userId][peerId].pinned = !!pinned;
+  db.session[userId][peerId].pinnedAt = pinned ? Date.now() : 0;
+  save();
+  return { ...(db.session[userId][peerId] || {}) } as SessionInfo;
+}
+
 export function listPeers(userId: string) {
-  const res: Array<{ peer: string; lastTs: number; unread: number; lastActive: number; lastRead: number }> = [];
+  const res: Array<{ peer: string; lastTs: number; unread: number; lastActive: number; lastRead: number; pinned?: boolean; pinnedAt?: number }> = [];
   for (const key of Object.keys(db.conversations)) {
     const parts = key.split('|');
     if (!parts.includes(userId)) continue;
@@ -113,9 +122,14 @@ export function listPeers(userId: string) {
     const lastTs = list.length ? list[list.length - 1].timestamp : 0;
     const unread = (db.unread[userId] && db.unread[userId][peer]) || 0;
     const sess = (db.session[userId] && db.session[userId][peer]) || {};
-    res.push({ peer, lastTs, unread, lastActive: sess.lastActive || 0, lastRead: sess.lastRead || 0 });
+    res.push({ peer, lastTs, unread, lastActive: sess.lastActive || 0, lastRead: sess.lastRead || 0, pinned: !!sess.pinned, pinnedAt: sess.pinnedAt || 0 });
   }
-  res.sort((a, b) => (b.lastActive || b.lastTs) - (a.lastActive || a.lastTs));
+  res.sort((a, b) => {
+    if (a.pinned && b.pinned) return (b.pinnedAt || 0) - (a.pinnedAt || 0);
+    if (a.pinned && !b.pinned) return -1;
+    if (!a.pinned && b.pinned) return 1;
+    return (b.lastActive || b.lastTs) - (a.lastActive || a.lastTs);
+  });
   return res;
 }
 

@@ -295,6 +295,14 @@ app.delete('/api/conversations/:peer', authMiddleware, (req: any, res: any) => {
   res.json({ ok: true });
 });
 
+app.post('/api/conversations/:peer/pin', authMiddleware, (req: any, res: any) => {
+  const peer = req.params.peer;
+  const pinned = !!(req.body && req.body.pinned);
+  const session = storage.setPinned(req.user.id, peer, pinned);
+  const list = storage.listPeers(req.user.id);
+  res.json({ ok: true, session, conversations: list });
+});
+
 app.post('/api/messages/:peer', authMiddleware, (req: any, res: any) => {
   const peer = req.params.peer;
   const { content, timestamp } = req.body || {};
