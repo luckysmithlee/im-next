@@ -139,7 +139,6 @@ export default function Home() {
     setMessages({});
     setTo('');
     setText('');
-    setOnline([]);
   }
 
   function handleLogin(tkn: string, uid: string, email: string, rememberMe = false) {
@@ -472,7 +471,7 @@ export default function Home() {
             </div>
           </header>
           <div className="flex-1 flex overflow-hidden">
-            <UnifiedSidebar conversations={conversations} unreadByPeer={unreadByPeer} to={to} onSelectPeer={(peer) => { setTo(peer); if (typeof window !== 'undefined' && window.innerWidth < 1024) setShowSidebar(false); setTimeout(() => { if (messageInputRef.current) messageInputRef.current.focus(); }, 100); }} showSidebar={showSidebar} setShowSidebar={setShowSidebar} totalUnread={totalUnread} onPin={togglePin} onDelete={(peer) => { if (skipDeleteConfirm) { doDelete(peer); } else { setConfirmDeletePeer(peer); } }} />
+            <UnifiedSidebar conversations={conversations} unreadByPeer={unreadByPeer} to={to} onSelectPeer={(peer: string) => { setTo(peer); if (typeof window !== 'undefined' && window.innerWidth < 1024) setShowSidebar(false); setTimeout(() => { if (messageInputRef.current) messageInputRef.current.focus(); }, 100); }} showSidebar={showSidebar} setShowSidebar={setShowSidebar} totalUnread={totalUnread} onPin={togglePin} onDelete={(peer: string) => { if (skipDeleteConfirm) { doDelete(peer); } else { setConfirmDeletePeer(peer); } }} />
             <aside className="hidden">
               <div className="px-4 sm:px-6 py-4 border-b border-border flex-shrink-0 h-[76px] flex flex-col justify-center">
                 <div className="flex items-center justify-between">

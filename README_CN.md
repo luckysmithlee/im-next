@@ -5,7 +5,6 @@
 ## 功能特性
 
 - **实时消息传输**（Socket.IO）
-- **在线用户状态跟踪**
 - **私聊功能**
 - **消息持久化**（开发默认文件存储），顶部滚动自动按需加载历史
 - **智能滚动行为**：在底部时不强制滚动；不在底部时渲染后自动滚到底部
@@ -13,6 +12,7 @@
 - **多种前端实现**：Vite + React + TypeScript、Next.js
 - **响应式设计**（Tailwind CSS）
 - **模拟认证**（便于测试）
+ - **统一会话列表（Next）**：支持置顶（按置顶时间排序在最上方）、虚拟滚动、删除时二次确认（可勾选不再提示）
 
 ## 项目结构
 
@@ -154,6 +154,11 @@ npm start        # 生产环境启动
 - `GET /api/me`: 当前用户信息（需 `Authorization: Bearer <token>`，支持 mock token `mock_jwt_<userId>_<ts>`）
 - `GET /api/messages/:peer?limit=<n>&before=<timestamp>`: 分页查询历史（严格早于 `before`），默认 20 条
 - `POST /api/messages/:peer` JSON `{ content: string }`: 将当前用户的消息写入到会话
+- `GET /api/conversations`: 返回会话列表，字段包含 `peer, lastTs, unread, lastActive, lastRead, pinned, pinnedAt`，排序规则为置顶优先（按置顶时间降序），其次按最后活跃/消息时间
+- `POST /api/read/:peer`: 清空指定会话的未读并返回 `{ byPeer, total }`
+- `POST /api/session/active/:peer`: 标记会话活跃（更新 `lastActive`）
+- `DELETE /api/conversations/:peer`: 清除会话并重置相关未读
+- `POST /api/conversations/:peer/pin` JSON `{ pinned: boolean }`: 设置置顶状态并返回更新后的 `conversations`
 
 ## 环境配置
 
@@ -190,12 +195,12 @@ npm test
 - 历史按需加载：消息列表滚到顶部时自动加载上一页，加载后保持当前视口位置。
 - 底部行为：若已在底部，新消息不强制滚动；若不在底部，渲染完成后平滑滚到底部。
 
-## 最近更新
+## 最近更新（Next 前端）
 
-- ✅ 修复了消息输入区域的布局问题
-- ✅ 优化了响应式设计，确保在小屏幕上正常显示
-- ✅ 改进了用户选择逻辑，提供更好的交互体验
-- ✅ 添加了自动聚焦功能，提升用户体验
+- 将在线用户列表与历史会话列表合并为统一会话视图（Next 前端不再显示在线状态 UI）
+- 新增置顶/取消置顶功能，对应接口 `POST /api/conversations/:peer/pin`，置顶会话按置顶时间排序在最上方
+- 列表引入虚拟滚动，提升大量会话时的渲染性能
+- 删除会话支持确认弹窗，并可勾选“不要再提示”进行本地持久化
 
 ## 技术亮点
 

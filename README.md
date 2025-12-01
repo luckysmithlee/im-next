@@ -5,7 +5,6 @@ A real-time chat application with multiple frontend implementations and Socket.I
 ## Features
 
 - **Real-time messaging** with Socket.IO
-- **Online user status tracking**
 - **Private one-on-one chat**
 - **Message persistence** (file-based by default) and lazy history loading on scroll-to-top
 - **Smart scrolling**: stays at bottom if you're at bottom; auto-scroll when not at bottom
@@ -13,6 +12,7 @@ A real-time chat application with multiple frontend implementations and Socket.I
 - **Multiple frontend implementations**: Vite + React + TypeScript, Next.js
 - **Responsive design** with Tailwind CSS
 - **Mock authentication** for easy testing
+ - **Unified conversation list (Next)**: pinned sessions on top (by pinnedAt), virtual scrolling, delete with confirmation and "don't ask again" option
 
 ## Project Structure
 
@@ -159,6 +159,11 @@ The message input component features:
 - `GET /api/me`: current user info (requires `Authorization: Bearer <token>`; supports mock tokens `mock_jwt_<userId>_<ts>`)
 - `GET /api/messages/:peer?limit=<n>&before=<timestamp>`: paginate history (strictly older than `before`), default limit 20
 - `POST /api/messages/:peer` body `{ content: string }`: append a message from current user to `peer`
+- `GET /api/conversations`: list conversations with `peer, lastTs, unread, lastActive, lastRead, pinned, pinnedAt` sorted by pinned first then lastActive/lastTs
+- `POST /api/read/:peer`: resets unread counts for `peer` and returns `{ byPeer, total }`
+- `POST /api/session/active/:peer`: marks a session as active (updates `lastActive`)
+- `DELETE /api/conversations/:peer`: clears a conversation and resets related unread
+- `POST /api/conversations/:peer/pin` body `{ pinned: boolean }`: sets pinned state and returns refreshed `conversations`
 
 ## Environment Configuration
 
@@ -194,3 +199,10 @@ npm test
 - Default persistence uses a simple file store (`backend/data/messages.json`) suitable for local/dev. For production, switch to PostgreSQL/Supabase and wire the storage layer accordingly.
 - Infinite scroll: history is lazily loaded when the message list is scrolled to top; scroll position is preserved during prepend.
 - Smart bottom behavior: if you are already at bottom, new messages don’t force a scroll; if not at bottom, the view auto-scrolls after render.
+
+## Recent Changes (Next Frontend)
+
+- Unified sidebar into a single conversation list, removing online-state UI from Next
+- Added pin/unpin support with `POST /api/conversations/:peer/pin`; pinned sessions sort by `pinnedAt` on top
+- Implemented virtual scrolling for large conversation lists
+- Delete action now prompts a confirmation dialog with optional "don't ask again" persisted locally
