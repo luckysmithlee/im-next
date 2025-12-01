@@ -1,17 +1,16 @@
-import React from 'react';
+ 
 import { User } from '../../types/auth.types';
 import { Header } from './Header';
 import { Sidebar } from './Sidebar';
 import { ChatWindow } from '../chat/ChatWindow';
 import { ChatStore } from '../../stores/chatStore';
 import { AuthStore } from '../../stores/authStore';
-import { SocketService } from '../../services/chat/SocketService';
+ 
 
 interface MainLayoutProps {
   users: User[];
   authStore: AuthStore;
   chatStore: ChatStore;
-  socketService: SocketService;
   onLogout?: () => void;
   className?: string;
 }
@@ -20,22 +19,21 @@ export function MainLayout({
   users, 
   authStore, 
   chatStore, 
-  socketService, 
   onLogout, 
   className = '' 
 }: MainLayoutProps) {
-  const { currentUser } = authStore.getState();
-  const { selectedUser } = chatStore.getState();
+  const { user } = authStore.getState();
+  const { activePeer } = chatStore.getState();
 
-  const handleUserSelect = (user: User) => {
-    chatStore.setSelectedUser(user);
+  const handleUserSelect = (u: User) => {
+    chatStore.setActivePeer(u.id);
   };
 
   return (
     <div className={`flex flex-col h-screen bg-gray-50 ${className}`}>
       {/* Header */}
-      <Header 
-        currentUser={currentUser}
+        <Header 
+        currentUser={user}
         onLogout={onLogout}
         className="flex-shrink-0"
       />
@@ -46,8 +44,8 @@ export function MainLayout({
         <div className="w-80 flex-shrink-0">
           <Sidebar
             users={users}
-            selectedUserId={selectedUser?.id}
-            currentUserId={currentUser?.id}
+            selectedUserId={activePeer || undefined}
+            currentUserId={user?.id}
             onUserSelect={handleUserSelect}
             className="h-full"
           />
@@ -58,7 +56,7 @@ export function MainLayout({
           <ChatWindow
             chatStore={chatStore}
             authStore={authStore}
-            socketService={socketService}
+            selectedUser={users.find(u => u.id === activePeer)}
             className="h-full"
           />
         </div>

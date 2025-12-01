@@ -1,4 +1,4 @@
-import type { UserState, OnlineUser } from '@/types';
+import type { UserState, OnlineUser, UserSearchResult } from '@/types';
 import type { HttpClient } from '@/services/api';
 
 export class UserStore {
@@ -30,7 +30,7 @@ export class UserStore {
     });
 
     try {
-      const response = await this.httpClient.get('/api/users/search', { query });
+      const response = await this.httpClient.get<UserSearchResult>('/api/users/search', { query });
       this.setState({
         ...this.state,
         searchResults: response.users || [],

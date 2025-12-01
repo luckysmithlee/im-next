@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect } from 'react';
+import { useCallback, useEffect } from 'react';
 import { ChatHeader } from './ChatHeader';
 import { MessageList } from './MessageList';
 import { MessageInput } from './MessageInput';
@@ -6,51 +6,49 @@ import { useChat } from '../../hooks/useChat';
 import { useAuth } from '../../hooks/useAuth';
 import { ChatStore } from '../../stores/chatStore';
 import { AuthStore } from '../../stores/authStore';
-import { SocketService } from '../../services/chat/SocketService';
+ 
 
 interface ChatWindowProps {
   chatStore: ChatStore;
   authStore: AuthStore;
-  socketService: SocketService;
+  selectedUser?: import('../../types/auth.types').User;
   className?: string;
 }
 
-export function ChatWindow({ chatStore, authStore, socketService, className = '' }: ChatWindowProps) {
-  const { currentUser } = useAuth(authStore);
+export function ChatWindow({ chatStore, authStore, selectedUser, className = '' }: ChatWindowProps) {
+  const { user } = useAuth(authStore);
   const { 
-    messages, 
-    selectedUser, 
+    activePeer, 
     isLoading, 
     error, 
-    hasMore, 
     loadMessages, 
     sendMessage 
   } = useChat(chatStore);
 
   // Load initial messages when component mounts or selected user changes
   useEffect(() => {
-    if (selectedUser) {
-      loadMessages(selectedUser.id);
+    if (activePeer) {
+      loadMessages(activePeer);
     }
-  }, [selectedUser, loadMessages]);
+  }, [activePeer, loadMessages]);
 
   // Handle message sending
   const handleSendMessage = useCallback(async (content: string) => {
-    if (!selectedUser || !content.trim()) return;
-    
+    if (!activePeer || !content.trim()) return;
     try {
-      await sendMessage(selectedUser.id, content.trim());
+      await sendMessage(content.trim());
     } catch (error) {
       console.error('Failed to send message:', error);
     }
-  }, [selectedUser, sendMessage]);
+  }, [activePeer, sendMessage]);
 
   // Handle loading more messages
   const handleLoadMore = useCallback(() => {
-    if (selectedUser && hasMore && !isLoading) {
-      loadMessages(selectedUser.id, messages.length);
+    if (activePeer && !isLoading) {
+      const currentLength = chatStore.getMessages(activePeer).length;
+      loadMessages(activePeer, currentLength);
     }
-  }, [selectedUser, hasMore, isLoading, loadMessages, messages.length]);
+  }, [activePeer, isLoading, loadMessages, chatStore]);
 
   // No user selected state
   if (!selectedUser) {
@@ -76,18 +74,17 @@ export function ChatWindow({ chatStore, authStore, socketService, className = ''
       {/* Chat Header */}
       <ChatHeader 
         user={selectedUser}
-        onClose={() => chatStore.setSelectedUser(null)}
+        onClose={() => chatStore.setActivePeer(null)}
         className="border-b border-gray-200"
       />
 
       {/* Message List */}
       <div className="flex-1 overflow-hidden">
         <MessageList
-          messages={messages}
-          currentUserId={currentUser?.id || ''}
+          messages={activePeer ? chatStore.getMessages(activePeer) : []}
+          currentUserId={user?.id || ''}
           isLoading={isLoading}
           error={error}
-          hasMore={hasMore}
           onLoadMore={handleLoadMore}
           className="h-full"
         />
@@ -97,7 +94,7 @@ export function ChatWindow({ chatStore, authStore, socketService, className = ''
       <div className="border-t border-gray-200 p-4">
         <MessageInput
           onSendMessage={handleSendMessage}
-          placeholder={`发送消息给 ${selectedUser.name}...`}
+          placeholder={`发送消息给 ${(selectedUser?.nickname || selectedUser?.email) ?? ''}...`}
           disabled={isLoading}
         />
       </div>

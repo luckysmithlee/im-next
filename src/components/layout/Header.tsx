@@ -1,4 +1,4 @@
-import React from 'react';
+ 
 import { User } from '../../types/auth.types';
 import { Avatar } from '../ui/Avatar';
 import { Button } from '../ui/Button';
@@ -27,14 +27,14 @@ export function Header({ currentUser, onLogout, className = '' }: HeaderProps) {
             <>
               <div className="flex items-center space-x-3">
                 <div className="text-right">
-                  <p className="text-sm font-medium text-gray-900">{currentUser.name}</p>
+                  <p className="text-sm font-medium text-gray-900">{currentUser.nickname || currentUser.email}</p>
                   <p className="text-xs text-gray-500">在线</p>
                 </div>
                 <Avatar 
                   src={currentUser.avatar} 
-                  alt={currentUser.name}
+                  alt={currentUser.nickname || currentUser.email}
                   size="sm"
-                  online={true}
+                  online={false}
                 />
               </div>
               

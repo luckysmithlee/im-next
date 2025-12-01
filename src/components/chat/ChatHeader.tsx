@@ -1,7 +1,7 @@
-import React from 'react';
+ 
 import { User } from '../../types/auth.types';
 import { Avatar } from '../ui/Avatar';
-import { Badge } from '../ui/Badge';
+ 
 import { Button } from '../ui/Button';
 
 interface ChatHeaderProps {
@@ -16,27 +16,15 @@ export function ChatHeader({ user, onClose, className = '' }: ChatHeaderProps) {
       <div className="flex items-center space-x-3">
         <Avatar 
           src={user.avatar} 
-          alt={user.name}
+          alt={user.nickname || user.email}
           size="md"
-          online={user.online}
+          online={false}
         />
         <div className="flex-1 min-w-0">
           <h3 className="text-lg font-semibold text-gray-900 truncate">
-            {user.name}
+            {user.nickname || user.email}
           </h3>
-          <div className="flex items-center space-x-2 mt-1">
-            <Badge 
-              variant={user.online ? 'success' : 'secondary'}
-              size="sm"
-            >
-              {user.online ? '在线' : '离线'}
-            </Badge>
-            {user.lastSeen && (
-              <span className="text-xs text-gray-500">
-                最后上线: {new Date(user.lastSeen).toLocaleString()}
-              </span>
-            )}
-          </div>
+          <div className="flex items-center space-x-2 mt-1"></div>
         </div>
       </div>
       

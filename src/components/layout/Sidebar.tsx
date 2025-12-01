@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { User } from '../../types/auth.types';
 import { UserList } from '../chat/UserList';
 import { UserSearch } from '../chat/UserSearch';
@@ -30,16 +30,16 @@ export function Sidebar({
     }
 
     const lowerQuery = query.toLowerCase();
-    const filtered = users.filter(user => 
-      user.name.toLowerCase().includes(lowerQuery) ||
-      user.email.toLowerCase().includes(lowerQuery)
-    );
+    const filtered = users.filter(user => {
+      const displayName = (user.nickname || user.email).toLowerCase();
+      return displayName.includes(lowerQuery) || user.email.toLowerCase().includes(lowerQuery);
+    });
     
     setFilteredUsers(filtered);
   }, [users]);
 
   // Update filtered users when users prop changes
-  React.useEffect(() => {
+  useEffect(() => {
     if (searchQuery.trim()) {
       handleSearch(searchQuery);
     } else {
