@@ -46,6 +46,7 @@ class _ChatPageState extends State<ChatPage> {
 
   @override
   Widget build(BuildContext context) {
+    final isCompact = MediaQuery.of(context).size.width < 700;
     return Scaffold(
       appBar: AppBarWidget(
         title: 'Chats',
@@ -112,9 +113,32 @@ class _ChatPageState extends State<ChatPage> {
             );
           }
 
+          if (isCompact) {
+            return chatProvider.activePeer == null
+                ? SizedBox.expand(
+                    child: _ConversationList(
+                      conversations: chatProvider.conversations,
+                      activePeer: chatProvider.activePeer,
+                      onConversationSelected: (peer) {
+                        chatProvider.setActivePeer(peer);
+                      },
+                    ),
+                  )
+                : _MessageArea(
+                    messages: chatProvider.currentMessages,
+                    messageController: _messageController,
+                    scrollController: _scrollController,
+                    onSendMessage: (content) {
+                      chatProvider.sendMessage(content);
+                      _messageController.clear();
+                      _scrollToBottom();
+                    },
+                    isLoading: chatProvider.isLoading,
+                  );
+          }
+
           return Row(
             children: [
-              // Conversation List (Left Panel)
               SizedBox(
                 width: 320,
                 child: _ConversationList(
@@ -125,8 +149,6 @@ class _ChatPageState extends State<ChatPage> {
                   },
                 ),
               ),
-              
-              // Message Area (Right Panel)
               Expanded(
                 child: chatProvider.activePeer == null
                     ? Center(
@@ -245,6 +267,7 @@ class _ConversationList extends StatelessWidget {
                       ),
                     ),
                     title: Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
                       children: [
                         Expanded(
                           child: Text(
@@ -259,7 +282,7 @@ class _ConversationList extends StatelessWidget {
                         if (conversation.pinned)
                           Icon(
                             Icons.push_pin,
-                            size: 16,
+                            size: 18,
                             color: Theme.of(context).colorScheme.primary,
                           ),
                       ],
@@ -301,6 +324,7 @@ class _ConversationList extends StatelessWidget {
                       ],
                     ),
                     onTap: () => onConversationSelected(conversation.peerId),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                     trailing: PopupMenuButton<String>(
                       onSelected: (value) {
                         final chatProvider = Provider.of<ChatProvider>(
@@ -313,6 +337,12 @@ class _ConversationList extends StatelessWidget {
                             chatProvider.pinConversation(
                               conversation.peerId,
                               !conversation.pinned,
+                            );
+                            break;
+                          case 'unpin':
+                            chatProvider.pinConversation(
+                              conversation.peerId,
+                              false,
                             );
                             break;
                           case 'delete':
