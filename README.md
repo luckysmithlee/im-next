@@ -122,6 +122,45 @@ flutter run -d android
 flutter run -d ios
 ```
 
+#### iOS 模拟器（推荐）
+- 需要 Xcode 与 CocoaPods
+- 安装 CocoaPods（推荐 Homebrew）：`brew install cocoapods`，然后 `pod setup`
+- 预缓存 iOS 引擎：`flutter precache --ios`
+- 安装 iOS 依赖：
+```bash
+cd flutter_im_client/ios
+pod repo update
+pod install
+cd ..
+open -a Simulator
+flutter run -d ios
+```
+- 如未指定平台版本，Pod 会自动设为 iOS 13；可在 `ios/Podfile` 头部添加：`platform :ios, '13.0'`
+
+#### macOS 桌面（可选）
+- 启用桌面支持：`flutter config --enable-macos-desktop`
+- 如缺少平台目录：`flutter create --platforms=macos .`
+```bash
+cd flutter_im_client
+flutter pub get
+flutter run -d macos
+```
+
+#### ATS 网络配置（iOS/macOS）
+- 访问 `http://localhost:4000` 时需允许明文 HTTP：
+  - 在 `ios/Runner/Info.plist` 与 `macos/Runner/Info.plist` 添加：
+    - `NSAppTransportSecurity` → `NSAllowsArbitraryLoads = true`
+  - 或在 `NSExceptionDomains` 为 `localhost` 添加例外（`NSTemporaryExceptionAllowsInsecureHTTPLoads = true`）
+
+#### 诊断与 E2E 测试
+- 内置诊断页：`/chat/diagnostics`（聊天页右上角工具按钮）
+- Cypress：
+```bash
+npm run cy:run        # Electron 无头模式运行用例
+npm run cy:open       # 打开 Cypress UI
+```
+（Cypress 基址：`http://localhost:5174`）
+
 #### 账号与认证
 - 默认支持 Mock/JWT 登录（与现有 Web 前端一致）
 - 登录成功后会自动建立 Socket.IO 连接并进入聊天主页面

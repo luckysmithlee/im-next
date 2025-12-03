@@ -53,6 +53,41 @@ flutter run -d android
 flutter run -d ios
 ```
 
+### 4.1 iOS 模拟器
+```bash
+# 预缓存 iOS 引擎
+flutter precache --ios
+
+# 安装 CocoaPods（推荐 Homebrew）
+brew install cocoapods
+pod setup
+
+# 安装 iOS 依赖
+cd ios
+pod repo update
+pod install
+cd ..
+
+# 启动模拟器并运行
+open -a Simulator
+flutter run -d ios
+```
+- 如需明确平台版本，在 `ios/Podfile` 顶部添加：`platform :ios, '13.0'`
+
+### 4.2 macOS 桌面（可选）
+```bash
+flutter config --enable-macos-desktop
+flutter create --platforms=macos .   # 若缺少 macos 目录
+flutter pub get
+flutter run -d macos
+```
+
+### 4.3 ATS 网络配置
+- 为允许访问 `http://localhost:4000`，在 `ios/Runner/Info.plist` 与 `macos/Runner/Info.plist` 添加：
+  - `NSAppTransportSecurity` → `NSAllowsArbitraryLoads = true`
+  - 或在 `NSExceptionDomains` 为 `localhost` 添加例外，允许不安全 HTTP 加载
+
+
 ## 5. 功能概览
 - 登录/登出与自动登录（JWT + 安全存储）
 - 会话列表（置顶、未读计数、最近消息）
@@ -74,6 +109,10 @@ flutter run -d ios
 ## 8. 文档
 - 产品需求文档：`../.trae/documents/flutter_client_prd.md`
 - 技术架构文档：`../.trae/documents/flutter_client_technical_architecture.md`
+
+## 10. 诊断与自动化测试
+- 诊断页：从聊天页右上角工具按钮进入 `/chat/diagnostics`
+- Cypress：在项目根目录运行 `npm run cy:run` 或 `npm run cy:open`（基址 `http://localhost:5174`）
 
 ## 9. 常见问题
 - 连接失败：确认 `api_constants.dart` 的地址与后端端口一致，并确保 CORS 放行
