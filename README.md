@@ -74,6 +74,62 @@ npm install
 npm run dev  # Runs on port 3001 (build on 3000)
 ```
 
+### Option 3: Flutter 客户端（移动端/Web）
+
+#### 前置条件
+- 安装 Flutter SDK（3.16+）与 Dart（3.2+）
+- 移动端开发需配置 Android/iOS 环境（Xcode/Android Studio）
+
+#### 启动后端
+```bash
+cd backend
+npm install
+npm run dev  # 端口 4000
+```
+
+或使用 Next 前端的 BFF 代理：
+```bash
+cd frontend
+npm install
+npm run dev  # 端口 3001（生产 start 端口 3000）
+```
+
+#### 配置 Flutter 客户端后端地址
+- 文件：`flutter_im_client/lib/constants/api_constants.dart`
+- 修改：
+  - 使用后端直连：
+    - `baseUrl = 'http://localhost:4000/api'`
+    - `socketUrl = 'http://localhost:4000'`
+  - 使用 Next BFF（dev 环境）：
+    - `baseUrl = 'http://localhost:3001/api'`
+    - `socketUrl = 'http://localhost:3001'`
+  - 使用 Next 生产（`next start`）：
+    - `baseUrl = 'http://localhost:3000/api'`
+    - `socketUrl = 'http://localhost:3000'`
+
+#### 运行 Flutter 客户端
+```bash
+cd flutter_im_client
+flutter pub get
+
+# Web
+flutter run -d chrome
+
+# Android（示例）
+flutter run -d android
+
+# iOS（需已配置签名与设备）
+flutter run -d ios
+```
+
+#### 账号与认证
+- 默认支持 Mock/JWT 登录（与现有 Web 前端一致）
+- 登录成功后会自动建立 Socket.IO 连接并进入聊天主页面
+
+#### 文档
+- 产品需求文档：`.trae/documents/flutter_client_prd.md`
+- 技术架构文档：`.trae/documents/flutter_client_technical_architecture.md`
+
 ## Test Accounts
 
 All implementations use the same mock authentication:
@@ -161,9 +217,14 @@ The message input component features:
 - `POST /api/messages/:peer` body `{ content: string }`: append a message from current user to `peer`
 - `GET /api/conversations`: list conversations with `peer, lastTs, unread, lastActive, lastRead, pinned, pinnedAt` sorted by pinned first then lastActive/lastTs
 - `POST /api/read/:peer`: resets unread counts for `peer` and returns `{ byPeer, total }`
-- `POST /api/session/active/:peer`: marks a session as active (updates `lastActive`)
+- `GET /api/session/active/:peer`: marks a session as active (updates `lastActive`)
 - `DELETE /api/conversations/:peer`: clears a conversation and resets related unread
 - `POST /api/conversations/:peer/pin` body `{ pinned: boolean }`: sets pinned state and returns refreshed `conversations`
+
+### Flutter 客户端端点映射（参考）
+- 认证：`POST /api/auth/login`、`POST /api/auth/refresh`、`POST /api/auth/logout`、`GET /api/me`
+- 消息：`GET /api/messages/:peer?limit=<n>&before=<ts>`、Socket 事件 `private_message`
+- 会话：`GET /api/conversations`、`POST /api/read/:peer`、`DELETE /api/conversations/:peer`、`POST /api/conversations/:peer/pin`
 
 ## Environment Configuration
 
